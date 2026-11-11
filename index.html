@@ -1,0 +1,1620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DE LA TRACKER</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="De La Tracker">
+<meta name="theme-color" content="#17181b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<style>:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+<script>
+/* DE LA TRACKER: on-device storage (IndexedDB). Everything stays on this phone. */
+(function () {
+  const dbp = new Promise((res, rej) => {
+    const r = indexedDB.open("delatracker", 1);
+    r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains("docs")) d.createObjectStore("docs"); if (!d.objectStoreNames.contains("blobs")) d.createObjectStore("blobs"); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  async function tx(store, mode, fn) {
+    const d = await dbp;
+    return new Promise((res, rej) => {
+      const t = d.transaction(store, mode); let out;
+      const r = fn(t.objectStore(store)); if (r) r.onsuccess = () => { out = r.result; };
+      t.oncomplete = () => res(out); t.onerror = t.onabort = () => rej(t.error);
+    });
+  }
+  const cache = new Map();
+  const loaded = (async () => {
+    const d = await dbp;
+    await new Promise((res, rej) => {
+      const t = d.transaction("docs", "readonly"); const c = t.objectStore("docs").openCursor();
+      c.onsuccess = () => { const cur = c.result; if (cur) { cache.set(cur.key, cur.value); cur.continue(); } };
+      t.oncomplete = res; t.onerror = () => rej(t.error);
+    });
+  })();
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const listeners = new Set();
+  const depth = (p) => p.split("/").length;
+  const docSnap = (path) => { const v = cache.get(path); return { exists: v !== undefined, id: path.split("/").pop(), data: () => (v === undefined ? undefined : clone(v)) }; };
+  function colSnap(cp) {
+    const docs = [];
+    cache.forEach((v, k) => { if (k.startsWith(cp + "/") && depth(k) === depth(cp) + 1) docs.push({ id: k.split("/").pop(), data: () => clone(v) }); });
+    return { docs, size: docs.length, empty: !docs.length };
+  }
+  function emit(path) {
+    setTimeout(() => listeners.forEach((l) => {
+      if (l.kind === "doc" && l.path === path) l.cb(docSnap(path));
+      if (l.kind === "col" && path.startsWith(l.path + "/") && depth(path) === depth(l.path) + 1) l.cb(colSnap(l.path));
+    }), 0);
+  }
+  async function write(path, val) {
+    await loaded;
+    if (val === undefined) { await tx("docs", "readwrite", (s) => s.delete(path)); cache.delete(path); }
+    else { const v = clone(val); await tx("docs", "readwrite", (s) => s.put(v, path)); cache.set(path, v); }
+    emit(path);
+  }
+  function docRef(path) {
+    return {
+      id: path.split("/").pop(), path,
+      get: async () => { await loaded; return docSnap(path); },
+      set: (data) => write(path, data),
+      update: async (patch) => { await loaded; const cur = cache.get(path); if (cur === undefined) throw Object.assign(new Error("not found"), { code: "not_found" }); return write(path, { ...cur, ...patch }); },
+      delete: () => write(path, undefined),
+      onSnapshot(cb, err) { const l = { kind: "doc", path, cb }; listeners.add(l); loaded.then(() => cb(docSnap(path)), (e) => err && err(e)); return () => listeners.delete(l); },
+    };
+  }
+  function colRef(path) {
+    return {
+      path, doc: (id) => docRef(path + "/" + id),
+      onSnapshot(cb, err) { const l = { kind: "col", path, cb }; listeners.add(l); loaded.then(() => cb(colSnap(path)), (e) => err && err(e)); return () => listeners.delete(l); },
+    };
+  }
+  const db = { collection: colRef, doc: docRef };
+  const assets = {
+    async upload(blob) { const id = "f" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); await tx("blobs", "readwrite", (s) => s.put(blob, id)); return { id, url: "", sizeBytes: blob.size, contentType: blob.type }; },
+    async delete(id) { await tx("blobs", "readwrite", (s) => s.delete(id)); },
+    async get(id) { const b = await tx("blobs", "readonly", (s) => s.get(id)); if (!b) throw new Error("missing"); return b; },
+  };
+  const downloads = {
+    async save({ filename, data }) {
+      const blob = data instanceof Blob ? data : new Blob([data]);
+      try {
+        const file = new File([blob], filename, { type: blob.type });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: filename }); return { status: "saved" }; }
+      } catch (e) { if (e && e.name === "AbortError") return { status: "cancelled" }; }
+      const url = URL.createObjectURL(blob); const a = document.createElement("a");
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return { status: "saved" };
+    },
+  };
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  window.claude = { use: async (n) => (n === "db" ? db : n === "assets" ? assets : n === "downloads" ? downloads : null) };
+})();
+</script>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: phone-style app shell (top bar, scrolling screen, bottom tab bar, floating + button). Screens push in from the right; theme sheet rises from the bottom. Colours are set by the theme picker (defaults below). */
+:root {
+  --bg: #17181b; --surface: #202226; --raised: #2a2c31; --line: #34363c;
+  --fg: #ecebe6; --muted: #9a9890;
+  --accent: #f2b33d; --accent-ink: #1b1608;
+  --danger: #ef6b5b; --soon: #f2b33d; --done: #7f9cf0;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --gut-l: max(16px, env(safe-area-inset-left, 0px));
+  --gut-r: max(16px, env(safe-area-inset-right, 0px));
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; background: var(--bg); color: var(--fg); }
+body { font-family: var(--body); font-size: 15px; line-height: 1.45; overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- shell ---------- */
+.app { height: 100%; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; position: relative; background: var(--bg); }
+@media (min-width: 600px) { .app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
+.topbar { display: flex; align-items: center; gap: 12px; padding-block: 14px 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.topbar .ttl { flex: 1; min-width: 0; }
+.topbar h1 { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; margin: 0; letter-spacing: -0.02em; }
+.topbar h1 span { color: var(--accent); }
+.topbar .date { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.round { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; flex: none; }
+.round svg { width: 20px; height: 20px; }
+.round:hover { border-color: var(--muted); }
+
+.main { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-block: 4px 110px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.screen-title { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 18px 0 10px; }
+
+.tabbar { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.tab { background: transparent; border: 0; padding: 9px 4px 10px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+.tab svg { width: 22px; height: 22px; }
+.tab[aria-selected="true"] { color: var(--accent); }
+.tab .badge { font-family: var(--mono); font-size: 10px; background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 0 5px; margin-left: 2px; }
+
+.fab { position: absolute; right: var(--gut-r); bottom: 78px; width: 58px; height: 58px; border-radius: 18px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); z-index: 5; }
+.fab svg { width: 26px; height: 26px; }
+.fab:active { transform: scale(0.96); }
+
+/* ---------- cards & lists ---------- */
+.hero { background: var(--accent); color: var(--accent-ink); border-radius: 22px; padding: 18px; border: 0; width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+.hero .k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.75; }
+.hero .s { font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1.05; overflow-wrap: anywhere; }
+.hero .t { font-weight: 600; opacity: 0.85; overflow-wrap: anywhere; }
+.hero .row2 { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-top: 10px; }
+.hero .big { font-family: var(--mono); font-weight: 700; font-size: 34px; line-height: 1; }
+.hero .big small { font-size: 14px; font-weight: 500; margin-left: 4px; }
+.hero .when2 { font-size: 13px; font-weight: 600; text-align: right; opacity: 0.85; }
+.hero.clear { background: var(--surface); color: var(--fg); border: 1px solid var(--line); }
+
+.group-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 22px 2px 8px; display: flex; justify-content: space-between; }
+.group-label.late { color: var(--danger); }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.card { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; width: 100%; text-align: left; }
+.card:active { transform: scale(0.99); }
+.card .av { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 17px; color: #16151a; }
+.card .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .m { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .pdfmark { font-family: var(--mono); font-size: 9px; font-weight: 700; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); vertical-align: 2px; }
+.when { font-family: var(--mono); font-size: 11px; text-align: right; white-space: nowrap; color: var(--muted); }
+.when b { display: block; font-size: 15px; font-weight: 700; color: var(--fg); }
+.when.soon b { color: var(--soon); }
+.when.late b { color: var(--danger); }
+.when.done b { color: var(--done); }
+.empty { color: var(--muted); padding: 28px 12px; text-align: center; background: var(--surface); border: 1px dashed var(--line); border-radius: 16px; }
+.empty strong { display: block; color: var(--fg); font-family: var(--display); font-size: 18px; margin-bottom: 4px; }
+
+/* ---------- add chooser + events ---------- */
+.choices { display: flex; flex-direction: column; gap: 8px; }
+.choice { display: flex; align-items: center; gap: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 16px; padding: 14px; text-align: left; width: 100%; }
+.choice:hover { border-color: var(--muted); }
+.choice > span:last-child { min-width: 0; }
+.choice b { display: block; font-size: 16px; }
+.choice small { color: var(--muted); font-size: 13px; }
+.ch-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; }
+.ch-ic svg, .card .av.ev svg { width: 22px; height: 22px; }
+.iconpick { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+.icb { aspect-ratio: 1; max-width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: grid; place-items: center; padding: 0; }
+.icb svg { width: 56%; height: 56%; }
+.icb[aria-pressed="true"] { border-color: transparent; box-shadow: 0 0 0 2px var(--fg); }
+.colpick { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+.csw { aspect-ratio: 1; max-width: 100%; border-radius: 50%; border: 0; padding: 0; position: relative; cursor: pointer; display: block; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); }
+.csw[aria-pressed="true"]::after, .csw.any.sel::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2.5px solid var(--fg); }
+.csw.any { background: conic-gradient(#e5484d, #f2b33d, #b5e04a, #2ec4b6, #4c8dff, #a77bf3, #f06aa8, #e5484d); }
+.csw.any input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+.label .hint { font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.seg.two.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.subjrows { display: flex; flex-direction: column; gap: 8px; }
+.subjrow { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; }
+.subjrow > button { display: flex; align-items: center; gap: 12px; width: 100%; background: transparent; border: 0; padding: 12px; text-align: left; font-weight: 700; }
+.subjrow > button i { width: 26px; height: 26px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); }
+.subjrow > button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subjrow > button small { color: var(--muted); font-weight: 600; }
+.subjrow .colpick { padding: 2px 12px 14px; }
+.pill svg { width: 13px; height: 13px; }
+.sheet .forday { font-size: 13px; color: var(--muted); margin-top: -8px; }
+
+/* ---------- diary ---------- */
+.hw { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
+.tick { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--muted); background: transparent; display: grid; place-items: center; padding: 0; color: var(--accent-ink); margin-top: 1px; }
+.tick svg { width: 16px; height: 16px; opacity: 0; }
+.hw.isdone .tick { background: var(--accent); border-color: var(--accent); }
+.hw.isdone .tick svg { opacity: 1; }
+.hw-body { background: transparent; border: 0; padding: 0; text-align: left; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hw-sub { font-weight: 700; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hw-sub i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.hw-sub span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hw-what { color: var(--fg); opacity: 0.9; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hw-dates { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.hw.isdone .hw-sub span, .hw.isdone .hw-what { text-decoration: line-through; opacity: 0.55; }
+.hw .when { padding-top: 2px; }
+.showmore { background: transparent; border: 0; color: var(--accent); font-weight: 700; padding: 10px 2px; }
+
+/* ---------- grades ---------- */
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 10px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.stat .k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat b { font-family: var(--mono); font-weight: 700; font-size: 24px; line-height: 1.15; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.stat small { color: var(--muted); font-size: 12px; }
+.stat.main { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.stat.main .k, .stat.main small { color: inherit; opacity: 0.75; }
+.statnote { font-size: 12px; color: var(--muted); margin: 8px 2px 0; }
+.terms4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.terms4 div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; text-align: center; min-width: 0; }
+.terms4 span { display: block; font-size: 11px; font-weight: 700; color: var(--muted); }
+.terms4 b { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.terms4 .cur { border-color: var(--accent); }
+.dist { display: flex; flex-wrap: wrap; gap: 6px; }
+.dist span { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-weight: 700; font-size: 13px; }
+.dist span b { font-family: var(--display); font-size: 15px; margin-right: 4px; }
+.subjavg { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.subjavg .nm { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
+.subjavg .nm i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.subjavg .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subjavg .v { font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.subjavg .v small { display: block; font-family: var(--body); font-weight: 500; font-size: 11px; color: var(--muted); }
+.subjavg .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+.subjavg .bar i { display: block; height: 100%; border-radius: 3px; }
+.gradechips { display: flex; gap: 8px; flex-wrap: wrap; }
+.gch { width: 46px; height: 42px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-family: var(--display); font-weight: 800; font-size: 17px; }
+.gch[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.scoreline { display: flex; gap: 10px; align-items: center; }
+.scoreline input { flex: 1; min-width: 0; }
+.scoreline .pct { font-family: var(--mono); font-weight: 700; font-size: 18px; min-width: 64px; text-align: right; }
+
+/* ---------- backup ---------- */
+.datasec { border-top: 1px solid var(--line); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.datasec .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.datasec .btns .btn { text-align: center; cursor: pointer; }
+.datasec .msg { font-size: 13px; color: var(--muted); }
+.datasec .msg:empty { display: none; }
+
+/* ---------- terms ---------- */
+.termstrip { width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.termstrip .ts-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.termstrip .ts-top b { font-weight: 700; min-width: 0; }
+.termstrip .ts-n { font-family: var(--mono); font-weight: 700; color: var(--accent); white-space: nowrap; }
+.termstrip .ts-bar { height: 6px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+.termstrip .ts-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.termstrip .ts-sub { font-size: 12px; color: var(--muted); }
+.dcell .n { position: relative; }
+.dcell.tend .n::after, .dcell.tstart .n::after { content: ""; position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%); width: 14px; height: 3px; border-radius: 2px; background: var(--accent); }
+.dcell.tstart .n::after { background: var(--muted); }
+.dcell.sel.tend .n::after, .dcell.sel.tstart .n::after { background: var(--accent-ink); }
+.trow { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px dashed var(--accent); border-radius: 16px; padding: 12px; width: 100%; text-align: left; font-weight: 700; }
+.trow svg { width: 22px; height: 22px; color: var(--accent); flex: none; }
+.trow small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+.linkbtn { background: transparent; border: 0; color: var(--accent); font-weight: 700; padding: 10px 2px; }
+.yearsw { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.yearsw b { font-family: var(--display); font-weight: 800; font-size: 24px; min-width: 70px; text-align: center; }
+.termblock { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.termblock .tb-h { font-weight: 800; font-family: var(--display); font-size: 17px; display: flex; justify-content: space-between; align-items: baseline; }
+.termblock .tb-h small { font-family: var(--body); font-weight: 600; font-size: 12px; color: var(--muted); }
+.termblock input[type=date] { background: var(--bg); }
+
+/* ---------- calendar ---------- */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 8px; }
+.cal-head h2 { font-family: var(--display); font-weight: 700; font-size: 22px; margin: 0; }
+.cal-nav { display: flex; gap: 6px; align-items: center; }
+.pillbtn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+.round.sm { width: 34px; height: 34px; }
+.cal-box { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 10px; }
+.weekdays, .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.weekdays div { font-size: 11px; font-weight: 700; text-align: center; color: var(--muted); padding: 4px 0 8px; }
+.dcell { background: transparent; border: 0; padding: 4px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.dcell .n { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: 13px; font-weight: 500; }
+.dcell.out .n { opacity: 0.32; }
+.dcell.today .n { box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent); font-weight: 700; }
+.dcell.sel .n { background: var(--accent); color: var(--accent-ink); box-shadow: none; font-weight: 700; }
+.dots { display: flex; gap: 3px; height: 6px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; }
+
+/* ---------- full screens (detail / form) ---------- */
+.layer { position: fixed; inset: 0; z-index: 20; display: flex; justify-content: center; }
+.layer .scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.5); }
+.screen { position: relative; width: 100%; max-width: 560px; height: 100%; background: var(--bg); display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.s-bar { display: flex; align-items: center; gap: 10px; padding-block: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); border-bottom: 1px solid var(--line); }
+.s-bar .s-ttl { flex: 1; min-width: 0; text-align: center; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.textbtn { background: transparent; border: 0; color: var(--accent); font-weight: 700; padding: 8px 4px; min-width: 60px; }
+.textbtn.left { text-align: left; } .textbtn.right { text-align: right; }
+.s-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-block: 18px 32px; padding-left: var(--gut-l); padding-right: var(--gut-r); display: flex; flex-direction: column; gap: 18px; }
+.s-foot { padding-block: 10px 12px; padding-left: var(--gut-l); padding-right: var(--gut-r); border-top: 1px solid var(--line); background: var(--bg); }
+@media (prefers-reduced-motion: no-preference) {
+  .screen { animation: push 0.22s cubic-bezier(.2,.8,.2,1); }
+  @keyframes push { from { transform: translateX(40px); opacity: 0; } }
+  .sheet { animation: rise 0.24s cubic-bezier(.2,.8,.2,1); }
+  @keyframes rise { from { transform: translateY(40px); opacity: 0; } }
+}
+
+.d-top { display: flex; flex-direction: column; gap: 8px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); align-self: flex-start; }
+.pill .dot { width: 9px; height: 9px; border-radius: 50%; }
+.d-top h2 { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1.08; margin: 0; overflow-wrap: anywhere; text-wrap: balance; }
+.count { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); }
+.count b { font-size: 40px; line-height: 1; font-weight: 700; }
+.count span { color: var(--muted); font-size: 13px; }
+.count.soon b { color: var(--soon); } .count.late b { color: var(--danger); } .count.done b { color: var(--done); }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.fact { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; min-width: 0; }
+.fact span { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.fact b { font-weight: 600; overflow-wrap: anywhere; }
+.fact b.mono { font-family: var(--mono); font-weight: 500; }
+.seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; border-radius: 9px; padding: 8px 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.desc { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+textarea, input[type=text], input[type=date], input[type=number], select.in { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; }
+textarea { min-height: 130px; resize: vertical; }
+.saved { font-size: 12px; color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.files { display: flex; flex-direction: column; gap: 6px; }
+.file { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.ico { font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--accent-ink); background: var(--accent); border-radius: 5px; padding: 3px 5px; flex: none; }
+.file .open { background: transparent; border: 0; padding: 0; color: var(--fg); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-weight: 600; }
+.file .x { background: transparent; border: 0; color: var(--muted); font-size: 20px; line-height: 1; padding: 0 2px; }
+.addpdf { display: flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed var(--line); border-radius: 12px; padding: 12px; font-weight: 700; color: var(--accent); cursor: pointer; margin-top: 8px; background: transparent; width: 100%; }
+.addpdf.over { border-color: var(--accent); }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 12px 16px; font-weight: 700; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); width: 100%; font-size: 16px; padding: 14px; }
+.btn.danger { color: var(--danger); background: transparent; border-color: color-mix(in srgb, var(--danger) 45%, transparent); width: 100%; }
+.btn:disabled { opacity: 0.6; }
+.confirm { background: var(--surface); border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.confirm .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.confirm .btns .btn { width: 100%; padding: 10px; }
+form.edit { display: contents; }
+.f2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.err { color: var(--danger); font-size: 13px; font-weight: 600; }
+.err:empty { display: none; }
+
+/* ---------- theme sheet ---------- */
+.layer.bottom { align-items: flex-end; }
+.sheet { position: relative; width: 100%; max-width: 560px; max-height: 90%; overflow-y: auto; background: var(--surface); border-radius: 24px 24px 0 0; border: 1px solid var(--line); border-bottom: 0;
+  padding-block: 10px calc(22px + env(safe-area-inset-bottom, 0px)); padding-left: var(--gut-l); padding-right: var(--gut-r); display: flex; flex-direction: column; gap: 16px; }
+.grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); align-self: center; }
+.sheet h3 { font-family: var(--display); font-weight: 800; font-size: 22px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
+.swatches { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.sw { aspect-ratio: 1; max-width: 100%; border-radius: 50%; border: 0; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); position: relative; }
+.sw[aria-pressed="true"]::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2.5px solid var(--fg); }
+.custom { display: flex; align-items: center; gap: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; cursor: pointer; }
+.custom input[type=color] { width: 44px; height: 44px; border: 0; padding: 0; background: transparent; border-radius: 10px; cursor: pointer; flex: none; }
+.custom .c-t { flex: 1; min-width: 0; }
+.custom .c-t b { display: block; }
+.custom .c-t span { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.seg.two { grid-template-columns: 1fr 1fr; background: var(--bg); }
+.seg.two button { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 14px; padding: 9px 4px; }
+.seg.two button small { font-size: 11px; font-weight: 600; opacity: 0.75; }
+.tprev { background: var(--bg); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; align-items: center; gap: 10px; }
+.tp-card { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.tp-av { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); flex: none; }
+.tp-lines { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.tp-lines i { height: 7px; border-radius: 4px; background: var(--fg); opacity: 0.85; width: 70%; }
+.tp-lines i + i { background: var(--muted); width: 45%; opacity: 0.7; }
+.tp-num { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+.tp-btn { width: 44px; height: 44px; border-radius: 13px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 24px; font-weight: 700; flex: none; }
+.custom .c-go { font-size: 13px; font-weight: 700; color: var(--accent); }
+.bgs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.bgopt { border: 2px solid transparent; border-radius: 14px; padding: 6px; background: transparent; display: flex; flex-direction: column; gap: 6px; align-items: stretch; font-size: 12px; font-weight: 700; }
+.bgopt[aria-pressed="true"] { border-color: var(--accent); }
+.bgopt .pv { height: 54px; border-radius: 10px; border: 1px solid var(--line); position: relative; overflow: hidden; }
+.bgopt .pv i { position: absolute; left: 8px; right: 8px; height: 8px; border-radius: 4px; }
+
+/* ---------- PDF viewer ---------- */
+.viewer { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+.v-bar { display: flex; align-items: center; gap: 10px; padding-block: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); border-bottom: 1px solid var(--line); background: var(--surface); }
+.v-bar .v-name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-bar .v-info { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.v-pages { flex: 1; overflow: auto; padding-block: 16px calc(24px + env(safe-area-inset-bottom, 0px)); padding-left: var(--gut-l); padding-right: var(--gut-r); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.v-pages canvas { width: 100%; max-width: 900px; height: auto; background: #fff; border-radius: 4px; box-shadow: 0 2px 14px rgb(0 0 0 / 0.45); }
+.v-msg { color: var(--muted); padding: 40px 0; text-align: center; }
+
+.notice { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; color: var(--muted); margin-top: 8px; font-size: 14px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 18px; border-radius: 999px; z-index: 60; font-weight: 700; font-size: 14px; white-space: nowrap; }
+</style>
+
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="ttl">
+      <h1>DE LA <span>TRACKER</span></h1>
+      <div class="date" id="todayLbl"></div>
+    </div>
+    <button class="round" type="button" id="themeBtn" aria-label="Change colour theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.8-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <main class="main" id="main"></main>
+
+  <button class="fab" type="button" id="fab" aria-label="Add assessment">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <nav class="tabbar" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-tab="up" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/></svg>
+      <span>Upcoming<span class="badge" id="upBadge" hidden></span></span>
+    </button>
+    <button class="tab" role="tab" data-tab="cal" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>
+      <span>Calendar</span>
+    </button>
+    <button class="tab" role="tab" data-tab="done" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.7 2.7L16.5 9.5"/></svg>
+      <span>Done</span>
+    </button>
+    <button class="tab" role="tab" data-tab="diary" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h11.5A2.5 2.5 0 0 1 19 6v14.5H7.5A2.5 2.5 0 0 1 5 18Z"/><path d="M5 18a2.5 2.5 0 0 1 2.5-2.5H19M9 8h6M9 11.5h4"/></svg>
+      <span>Diary<span class="badge" id="hwBadge" hidden></span></span>
+    </button>
+    <button class="tab" role="tab" data-tab="grades" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+      <span>Grades</span>
+    </button>
+  </nav>
+</div>
+
+<div class="layer" id="screenLayer" hidden><div class="scrim" data-close></div><div class="screen" id="screen" role="dialog" aria-modal="true"></div></div>
+<div class="layer bottom" id="sheetLayer" hidden><div class="scrim" data-closesheet></div><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Colour theme"></div></div>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="PDF viewer" hidden>
+  <div class="v-bar">
+    <button class="round sm" type="button" id="vClose" aria-label="Close PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <span class="v-name" id="vName"></span>
+    <span class="v-info" id="vInfo"></span>
+    <button class="pillbtn" type="button" id="vSave" hidden>Save a copy</button>
+  </div>
+  <div class="v-pages" id="vPages"></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+(function () {
+  const TYPES = ["Exam", "Test", "Assignment", "Project", "Presentation", "Practical", "Other"];
+  const STATUSES = ["Not started", "In progress", "Submitted", "Marked"];
+  const HUES = ["#f2b33d", "#ef8a5b", "#7f9cf0", "#c58af0", "#f07fa8", "#5cc4f0", "#e8d36a", "#f0a07f", "#a3a8ff", "#ff9e6b"];
+  const ICON_BACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M15 5l-7 7 7 7"/></svg>';
+
+  // ---------- theme ----------
+  const SWATCHES = [
+    ["Pencil", "#f2b33d"], ["Orange", "#ff8a1f"], ["Coral", "#ff6f59"], ["Red", "#e5484d"], ["Pink", "#f06aa8"], ["Purple", "#a77bf3"],
+    ["Blue", "#4c8dff"], ["Sky", "#38bdf8"], ["Teal", "#2ec4b6"], ["Green", "#3fc46a"], ["Lime", "#b5e04a"], ["White", "#e9e9e9"],
+  ];
+  const BACKGROUNDS = [
+    ["Charcoal", "#17181b"], ["Black", "#000000"], ["Navy", "#0e1322"], ["Slate", "#1e2530"], ["Plum", "#1f1428"], ["Maroon", "#2a1215"],
+    ["Forest", "#10201a"], ["Espresso", "#211a15"], ["Steel", "#3a4250"], ["Cream", "#f4efe3"], ["Light", "#f3f2ef"], ["White", "#ffffff"],
+  ];
+  const OLD_BGS = { charcoal: "#17181b", black: "#000000", navy: "#0e1322", light: "#f3f2ef" };
+  const DEFAULT_THEME = { accent: "#f2b33d", bgColor: "#17181b" };
+  const isHex = (v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+  let theme = { ...DEFAULT_THEME };
+  try {
+    const t = JSON.parse(localStorage.getItem("mp-theme") || "null");
+    if (t && isHex(t.accent)) theme.accent = t.accent;
+    if (t && isHex(t.bgColor)) theme.bgColor = t.bgColor; else if (t && OLD_BGS[t.bg]) theme.bgColor = OLD_BGS[t.bg];
+  } catch (e) {}
+  let themeTab = "primary";
+
+  const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const toHex = (c) => "#" + c.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
+  const mix = (a, b, t) => { const x = rgb(a), y = rgb(b); return toHex(x.map((v, i) => v + (y[i] - v) * t)); };
+  function lum(hex) {
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const [r, g, b] = rgb(hex); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+  const inkFor = (hex) => (lum(hex) > 0.36 ? "#15130c" : "#ffffff");
+  function paletteFor(bg) {
+    if (lum(bg) < 0.3) {
+      const fg = "#f0efea";
+      return { bg, surface: mix(bg, "#ffffff", 0.06), raised: mix(bg, "#ffffff", 0.11), line: mix(bg, "#ffffff", 0.17), fg, muted: mix(fg, bg, 0.42),
+        danger: "#ff6b5e", soon: "#f5b941", done: "#9fb4ff", scheme: "dark" };
+    }
+    const fg = "#1c1b19";
+    return { bg, surface: lum(bg) > 0.9 ? mix(bg, "#000000", 0.035) : mix(bg, "#ffffff", 0.55), raised: mix(bg, "#000000", 0.06), line: mix(bg, "#000000", 0.14), fg, muted: mix(fg, bg, 0.45),
+      danger: "#c8321f", soon: "#a8660a", done: "#3b5bd6", scheme: "light" };
+  }
+  function applyTheme() {
+    const p = paletteFor(theme.bgColor), s = document.documentElement.style;
+    ["bg", "surface", "raised", "line", "fg", "muted", "danger", "soon", "done"].forEach((k) => s.setProperty("--" + k, p[k]));
+    s.setProperty("--accent", theme.accent);
+    s.setProperty("--accent-ink", inkFor(theme.accent));
+    s.setProperty("color-scheme", p.scheme);
+  }
+  function saveTheme() { try { localStorage.setItem("mp-theme", JSON.stringify(theme)); } catch (e) {} }
+  applyTheme();
+
+  // ---------- state ----------
+  let items = [];
+  let col = null, assets = null, downloads = null;
+  let tab = "up";
+  let hw = [], hwCol = null, showAllDone = false;
+  let view = new Date(); view.setDate(1);
+  let selDay = null;
+  let screen = null; // {kind:'detail'|'form', id, mode, date}
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // ---------- dates ----------
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  const parse = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const todayStr = () => ymd(new Date());
+  const daysUntil = (s) => Math.round((parse(s) - parse(todayStr())) / 86400000);
+  const niceDate = (s) => parse(s).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const longDay = (s) => parse(s).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
+  const shortDate = (s) => parse(s).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+
+  const ITEM_COLORS = [["Yellow", "#f2b33d"], ["Orange", "#ff8a1f"], ["Coral", "#ef6b5b"], ["Red", "#e5484d"], ["Pink", "#f06aa8"], ["Purple", "#a77bf3"],
+    ["Lavender", "#a3a8ff"], ["Blue", "#4c8dff"], ["Sky", "#38bdf8"], ["Teal", "#2ec4b6"], ["Green", "#3fc46a"], ["Lime", "#b5e04a"], ["Grey", "#9aa0a6"]];
+  let subjColors = {}, colorRef = null;
+  const subjKey = (s) => (s || "").trim().toLowerCase();
+  function hashPick(str, list) {
+    let h = 0; const s = (str || "").toLowerCase();
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return list[h % list.length];
+  }
+  function subjectColor(subj) { return subjColors[subjKey(subj)] || hashPick(subj, HUES); }
+  function itemColor(a) { return isEvent(a) ? (a.color || hashPick(a.category || "event", ITEM_COLORS.map((x) => x[1]))) : subjectColor(a.subject); }
+  async function saveSubjColor(subj, c) {
+    const k = subjKey(subj); if (!k) return;
+    subjColors = { ...subjColors, [k]: c };
+    renderMain();
+    try { if (colorRef) await colorRef.set({ subjects: subjColors }); } catch (e) { toast("Couldn’t save that colour. Try again."); }
+  }
+  function colPickHtml(id, cur) {
+    const c = (cur || "#f2b33d").toLowerCase();
+    const preset = ITEM_COLORS.some(([, v]) => v === c);
+    return `<div class="colpick">${ITEM_COLORS.map(([n, v]) => `<button type="button" class="csw" data-cp="${id}" data-c="${v}" aria-label="${n}" title="${n}" aria-pressed="${v === c}" style="background:${v}"></button>`).join("")}<label class="csw any ${preset ? "" : "sel"}" title="Pick any colour" ${preset ? "" : `style="background:${c}"`}><input type="color" id="${id}" value="${c}" aria-label="Pick any colour"></label></div>`;
+  }
+  function bindColPick(root, id, onPick) {
+    const inp = root.querySelector("#" + id); if (!inp) return;
+    const any = inp.parentElement;
+    const mark = (c) => {
+      let preset = false;
+      root.querySelectorAll(`[data-cp="${id}"]`).forEach((b) => { const on = b.dataset.c === c; b.setAttribute("aria-pressed", on); if (on) preset = true; });
+      any.classList.toggle("sel", !preset); any.style.background = preset ? "" : c;
+    };
+    root.querySelectorAll(`[data-cp="${id}"]`).forEach((b) => (b.onclick = () => { inp.value = b.dataset.c; mark(b.dataset.c); onPick && onPick(b.dataset.c, true); }));
+    inp.oninput = () => { mark(inp.value.toLowerCase()); onPick && onPick(inp.value.toLowerCase(), false); };
+    inp.onchange = () => { mark(inp.value.toLowerCase()); onPick && onPick(inp.value.toLowerCase(), true); };
+    return { set: (c) => { inp.value = c; mark(c.toLowerCase()); } };
+  }
+  const EVENT_TYPES = ["Excursion", "Incursion", "Symposium", "Sports carnival", "Sport", "Performance", "Camp", "Assembly", "Parent–teacher", "Pupil-free day", "Other"];
+  const ICON_EVENT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h12l-2.5 4L17 12H5"/></svg>';
+  const ICON_ASSESS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>';
+  const ICON_HW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h11.5A2.5 2.5 0 0 1 19 6v14.5H7.5A2.5 2.5 0 0 1 5 18Z"/><path d="M5 18a2.5 2.5 0 0 1 2.5-2.5H19M9 8h6M9 11.5h4"/></svg>';
+  const EV_ICONS = {
+    flag: ["Flag", '<path d="M5 21V4M5 4h12l-2.5 4L17 12H5"/>'],
+    bus: ["Bus", '<rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 10h16M8 17v3M16 17v3"/><circle cx="8" cy="13.5" r=".9" fill="currentColor"/><circle cx="16" cy="13.5" r=".9" fill="currentColor"/>'],
+    mic: ["Microphone", '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/>'],
+    trophy: ["Trophy", '<path d="M8 4h8v5a4 4 0 0 1-8 0Z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v5M8 21h8"/>'],
+    ball: ["Ball", '<circle cx="12" cy="12" r="9"/><path d="M12 7l4 3-1.5 4.5h-5L8 10Z"/><path d="M12 3v4M21 10.5l-5-.5M3 10.5l5-.5M7 19l2.5-4.5M17 19l-2.5-4.5"/>'],
+    music: ["Music", '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'],
+    tent: ["Tent", '<path d="M3 20 12 4l9 16Z"/><path d="M9 20l3-6 3 6"/>'],
+    star: ["Star", '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>'],
+    people: ["People", '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A5 5 0 0 1 21 19"/>'],
+    book: ["Book", '<path d="M5 3.5h11.5A2.5 2.5 0 0 1 19 6v14.5H7.5A2.5 2.5 0 0 1 5 18Z"/><path d="M5 18a2.5 2.5 0 0 1 2.5-2.5H19"/>'],
+    flask: ["Science", '<path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3"/><path d="M7 15h10"/>'],
+    palette: ["Art", '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.8-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/>'],
+    globe: ["Globe", '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'],
+    pin: ["Location", '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>'],
+    camera: ["Camera", '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13.5" r="3.5"/>'],
+    calendar: ["Calendar", '<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>'],
+  };
+  const CAT_ICON = { "Excursion": "bus", "Incursion": "people", "Symposium": "mic", "Sports carnival": "trophy", "Sport": "ball", "Performance": "music", "Camp": "tent", "Assembly": "people", "Parent–teacher": "calendar", "Pupil-free day": "star", "Other": "flag" };
+  const svgIcon = (k) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (EV_ICONS[k] || EV_ICONS.flag)[1] + "</svg>";
+  const eventIcon = (a) => (a.icon && EV_ICONS[a.icon] ? a.icon : CAT_ICON[a.category] || "flag");
+  const isEvent = (a) => !!a && a.kind === "event";
+  const evEnd = (a) => (a.endDate && a.endDate > a.due ? a.endDate : a.due);
+  const isDone = (a) => isEvent(a) ? daysUntil(evEnd(a)) < 0 : (a.status === "Submitted" || a.status === "Marked");
+  // ----- grades + terms helpers -----
+  const GRADES = ["A", "B", "C", "D", "E"];
+  function parseScore(str) {
+    const t = String(str ?? "").trim().replace(/\s*%$/, "");
+    if (!t) return null;
+    const m = t.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+    if (m) { const d = +m[2]; if (!d) return null; const v = (+m[1] / d) * 100; return v <= 100.0001 ? Math.round(v * 10) / 10 : null; }
+    if (/^\d+(\.\d+)?$/.test(t)) { const v = +t; return v <= 100 ? v : null; }
+    return null;
+  }
+  const pctOf = (a) => (!a || isEvent(a)) ? null : (typeof a.pct === "number" ? a.pct : parseScore(a.mark));
+  const fmtPct = (v) => (Math.round(v * 10) / 10) + "%";
+  const NSW_TERMS = {
+    "2026": [{ start: "2026-02-02", end: "2026-04-02" }, { start: "2026-04-22", end: "2026-07-03" }, { start: "2026-07-21", end: "2026-09-25" }, { start: "2026-10-13", end: "2026-12-17" }],
+    "2027": [{ start: "2027-02-03", end: "2027-04-09" }, { start: "2027-04-29", end: "2027-07-02" }, { start: "2027-07-20", end: "2027-09-24" }, { start: "2027-10-11", end: "2027-12-17" }],
+  };
+  let termData = {}, termRef = null;
+  const validTerms = (t) => Array.isArray(t) && t.length === 4 && t.every((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.start || "") && /^\d{4}-\d{2}-\d{2}$/.test(x.end || ""));
+  function termsFor(y) { const t = termData[String(y)]; if (validTerms(t)) return t; return NSW_TERMS[String(y)] || null; }
+  const termsCustom = (y) => validTerms(termData[String(y)]);
+  function termOfDate(ds) {
+    const ts = termsFor(ds.slice(0, 4));
+    if (!ts) { const m = +ds.slice(5, 7); return m < 4 ? 1 : m < 7 ? 2 : m < 10 ? 3 : 4; }
+    let t = 1; ts.forEach((x, i) => { if (ds >= x.start) t = i + 1; }); return t;
+  }
+  const termOf = (a) => (+a.term >= 1 && +a.term <= 4 ? +a.term : termOfDate(a.due));
+  function termStatus() {
+    const today = todayStr(), y = +today.slice(0, 4);
+    for (const yr of [y, y + 1]) {
+      const ts = termsFor(yr); if (!ts) continue;
+      for (let i = 0; i < 4; i++) {
+        const t = ts[i];
+        if (today >= t.start && today <= t.end) return { kind: "term", n: i + 1, year: yr, start: t.start, end: t.end };
+        if (today < t.start) return { kind: "hols", n: i + 1, year: yr, start: t.start, prevEnd: i ? ts[i - 1].end : null };
+      }
+    }
+    return null;
+  }
+  function currentTerm() {
+    const st = termStatus();
+    if (st && st.kind === "term") return { n: st.n, year: st.year };
+    const today = todayStr();
+    return { n: termOfDate(today), year: +today.slice(0, 4) };
+  }
+  const ICON_TERM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h12l-2.5 4L17 12H5"/></svg>';
+
+  function dateRange(a) {
+    if (evEnd(a) === a.due) return niceDate(a.due);
+    return shortDate(a.due) + " – " + parse(evEnd(a)).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  }
+  function whenInfo(a) {
+    const n = daysUntil(a.due);
+    if (isEvent(a)) {
+      const ne = daysUntil(evEnd(a));
+      if (ne < 0) return { cls: "done", big: "✓", small: "past" };
+      if (n < 0 || (n === 0 && ne > 0)) return { cls: "soon", big: "On now", small: "to " + shortDate(evEnd(a)) };
+      if (n === 0) return { cls: "soon", big: "Today", small: a.time || shortDate(a.due) };
+      if (n === 1) return { cls: "soon", big: "Tmrw", small: shortDate(a.due) };
+      return { cls: n <= 7 ? "soon" : "", big: n + "d", small: shortDate(a.due) };
+    }
+    if (isDone(a)) {
+      const pc = pctOf(a);
+      if (a.status === "Marked" && pc != null) return { cls: "done", big: Math.round(pc) + "%", small: a.grade ? "Grade " + a.grade : "Marked" };
+      if (a.status === "Marked" && a.grade) return { cls: "done", big: a.grade, small: "Grade" };
+      return { cls: "done", big: a.status === "Marked" && a.mark ? a.mark : "✓", small: a.status };
+    }
+    if (n < 0) return { cls: "late", big: Math.abs(n) + "d", small: "overdue" };
+    if (n === 0) return { cls: "soon", big: "Today", small: shortDate(a.due) };
+    if (n === 1) return { cls: "soon", big: "Tmrw", small: shortDate(a.due) };
+    return { cls: n <= 7 ? "soon" : "", big: n + "d", small: shortDate(a.due) };
+  }
+
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 2000);
+  }
+
+  // ---------- storage ----------
+  async function saveItem(id, data) {
+    if (col) await col.doc(id).set(data);
+    const i = items.findIndex((x) => x.id === id);
+    if (i >= 0) items[i] = { id, ...data }; else items.push({ id, ...data });
+    renderMain();
+  }
+  async function patchItem(id, patch) {
+    if (col) await col.doc(id).update(patch);
+    const it = items.find((x) => x.id === id); if (it) Object.assign(it, patch);
+    renderMain();
+  }
+  async function removeItem(id) {
+    const it = items.find((x) => x.id === id);
+    if (assets && it && it.files) for (const f of it.files) { try { await assets.delete(f.id); } catch (e) {} }
+    if (col) await col.doc(id).delete();
+    items = items.filter((x) => x.id !== id);
+    renderMain();
+  }
+
+  // ---------- main tabs ----------
+  function cardHtml(a) {
+    const w = whenInfo(a);
+    if (isEvent(a)) {
+      const emeta = [a.category, a.time, a.location].filter(Boolean).join(" · ");
+      return `<button class="card" type="button" data-open="${esc(a.id)}">
+      <span class="av ev" style="background:${itemColor(a)};color:${inkFor(itemColor(a))}">${svgIcon(eventIcon(a))}</span>
+      <span style="min-width:0"><div class="t">${esc(a.title)}${a.files && a.files.length ? '<span class="pdfmark">PDF</span>' : ""}</div><div class="m">${esc(emeta)}</div></span>
+      <span class="when ${w.cls}"><b>${esc(w.big)}</b>${esc(w.small)}</span></button>`;
+    }
+    const meta = [a.title, a.type, a.weight ? a.weight + "%" : ""].filter(Boolean).join(" · ");
+    const initial = (a.subject || "?").trim().charAt(0).toUpperCase();
+    return `<button class="card" type="button" data-open="${esc(a.id)}">
+      <span class="av" style="background:${subjectColor(a.subject)};color:${inkFor(subjectColor(a.subject))}">${esc(initial)}</span>
+      <span style="min-width:0"><div class="t">${esc(a.subject)}${a.files && a.files.length ? '<span class="pdfmark">PDF</span>' : ""}</div><div class="m">${esc(meta)}</div></span>
+      <span class="when ${w.cls}"><b>${esc(w.big)}</b>${esc(w.small)}</span></button>`;
+  }
+
+  function renderUpcoming() {
+    const up = items.filter((a) => !isDone(a)).sort((a, b) => a.due.localeCompare(b.due));
+    const next = up.find((a) => daysUntil(a.due) >= 0 || isEvent(a));
+    let html = "";
+    if (next) {
+      const n = daysUntil(next.due), ev = isEvent(next);
+      const heading = ev ? next.title : next.subject;
+      const sub = ev ? [next.category, next.location].filter(Boolean).join(" · ") : next.title;
+      const extra = ev ? (next.time ? "<br>" + esc(next.time) : "") : (next.weight ? "<br>" + esc(next.weight) + "% weighting" : "");
+      html += `<button class="hero" type="button" data-open="${esc(next.id)}">
+        <span class="k">Next up${ev ? " · Event" : ""}</span>
+        <span class="s">${esc(heading)}</span>
+        <span class="t">${esc(sub)}</span>
+        <span class="row2"><span class="big">${n < 0 ? "On now" : n === 0 ? "Today" : n}${n <= 0 ? "" : `<small>${n === 1 ? "day" : "days"}</small>`}</span>
+        <span class="when2">${esc(ev ? dateRange(next) : longDay(next.due))}${extra}</span></span></button>`;
+    } else {
+      html += `<div class="hero clear"><span class="k" style="opacity:1;color:var(--muted)">Next up</span><span class="s">All clear</span><span class="t" style="opacity:1;color:var(--muted)">Nothing coming up. Tap + to add an assessment, event or homework.</span></div>`;
+    }
+    html += termStripHtml();
+    const late = up.filter((a) => !isEvent(a) && daysUntil(a.due) < 0);
+    const week = up.filter((a) => { const n = daysUntil(a.due); return n <= 7 && (n >= 0 || isEvent(a)); });
+    const later = up.filter((a) => daysUntil(a.due) > 7);
+    const group = (label, list, cls) => list.length ? `<div class="group-label ${cls || ""}"><span>${label}</span><span>${list.length}</span></div><div class="list">${list.map(cardHtml).join("")}</div>` : "";
+    html += group("Overdue", late, "late") + group("Next 7 days", week) + group("Later", later);
+    if (!items.length) html += `<div class="group-label"><span>Assessments</span></div><div class="empty"><strong>Nothing logged yet</strong>Tap the + button to add an assessment, an event like an excursion, or homework.</div>`;
+    return html;
+  }
+
+  function termStripHtml() {
+    const st = termStatus();
+    if (!st) return `<button class="termstrip" type="button" data-terms><span class="ts-top"><b>Add your term dates</b><span class="ts-n">Set up</span></span><span class="ts-sub">See a countdown to the end of term.</span></button>`;
+    const fmt = (d) => parse(d).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+    if (st.kind === "term") {
+      const left = daysUntil(st.end);
+      const total = Math.round((parse(st.end) - parse(st.start)) / 86400000) + 1;
+      const gone = total - left;
+      const pctDone = Math.max(2, Math.min(100, Math.round((gone / total) * 100)));
+      const wk = Math.floor((total - left - 1) / 7) + 1, wks = Math.ceil(total / 7);
+      return `<button class="termstrip" type="button" data-terms><span class="ts-top"><b>Term ${st.n} ends ${esc(fmt(st.end))}</b><span class="ts-n">${left === 0 ? "Last day!" : left + (left === 1 ? " day" : " days")}</span></span>
+        <span class="ts-bar"><i style="width:${pctDone}%"></i></span><span class="ts-sub">Week ${wk} of ${wks}</span></button>`;
+    }
+    const until = daysUntil(st.start);
+    return `<button class="termstrip" type="button" data-terms><span class="ts-top"><b>Holidays! Term ${st.n} starts ${esc(fmt(st.start))}</b><span class="ts-n">${until} ${until === 1 ? "day" : "days"}</span></span><span class="ts-sub">Tap to change your term dates</span></button>`;
+  }
+
+  function renderCalendar() {
+    const label = view.toLocaleDateString("en-AU", { month: "long", year: "numeric" });
+    const first = new Date(view.getFullYear(), view.getMonth(), 1);
+    const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
+    const byDay = {};
+    items.forEach((a) => {
+      const d = parse(a.due), e = parse(evEnd(a));
+      for (let g = 0; d <= e && g < 62; g++) { const k = ymd(d); (byDay[k] = byDay[k] || []).push(a); d.setDate(d.getDate() + 1); }
+    });
+    const marks = {};
+    [view.getFullYear() - 1, view.getFullYear(), view.getFullYear() + 1].forEach((yr) => {
+      const ts = termsFor(yr); if (!ts) return;
+      ts.forEach((x, i) => { marks[x.start] = { type: "start", n: i + 1 }; marks[x.end] = { type: "end", n: i + 1 }; });
+    });
+    const t = todayStr(); let cells = "";
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const key = ymd(d); const list = byDay[key] || [];
+      const out = d.getMonth() !== view.getMonth();
+      if (i === 35 && out) break;
+      const dots = list.slice(0, 3).map((a) => isEvent(a)
+        ? `<i style="background:${itemColor(a)};border-radius:2px;${isDone(a) ? "opacity:.4" : ""}"></i>`
+        : `<i style="background:${subjectColor(a.subject)};${isDone(a) ? "opacity:.4" : ""}"></i>`).join("");
+      const mk = marks[key];
+      cells += `<button class="dcell ${out ? "out" : ""} ${key === t ? "today" : ""} ${key === selDay ? "sel" : ""} ${mk ? "t" + mk.type : ""}" type="button" data-day="${key}" aria-label="${niceDate(key)}${mk ? (mk.type === "end" ? ", last day of Term " : ", first day of Term ") + mk.n : ""}${list.length ? ", " + list.length + " item" + (list.length > 1 ? "s" : "") : ""}"><span class="n">${d.getDate()}</span><span class="dots">${dots}</span></button>`;
+    }
+    const day = selDay || t;
+    const dayList = byDay[day] || [];
+    const dm = marks[day];
+    const termRow = dm ? `<button class="trow" type="button" data-terms>${ICON_TERM}<span>${dm.type === "end" ? "Last day of Term " + dm.n : "First day of Term " + dm.n}<small>Tap to change term dates</small></span></button>` : "";
+    return `<div class="cal-head"><h2>${esc(label)}</h2>
+        <div class="cal-nav"><button class="round sm" type="button" id="prevM" aria-label="Previous month">‹</button>
+        <button class="pillbtn" type="button" id="todayBtn">Today</button>
+        <button class="round sm" type="button" id="nextM" aria-label="Next month">›</button></div></div>
+      <div class="cal-box"><div class="weekdays"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div class="days">${cells}</div></div>
+      <button class="linkbtn" type="button" data-terms>Term dates</button>
+      <div class="group-label" style="margin-top:6px"><span>${esc(longDay(day))}</span><span>${dayList.length || ""}</span></div>
+      <div class="list">${termRow}${dayList.map(cardHtml).join("") || (termRow ? "" : `<div class="empty">Nothing due this day.</div>`)}
+      <button class="addpdf" type="button" id="addOnDay">+ Add on ${esc(shortDate(day))}</button></div>`;
+  }
+
+  function renderDone() {
+    const done = items.filter(isDone).sort((a, b) => b.due.localeCompare(a.due));
+    return `<div class="screen-title">Finished &amp; past</div>` + (done.length ? `<div class="list">${done.map(cardHtml).join("")}</div>`
+      : `<div class="empty"><strong>Nothing finished yet</strong>Set an assessment to Submitted or Marked and it shows up here. Past events show up here too.</div>`);
+  }
+
+  // ---------- grades ----------
+  function renderGrades() {
+    const res = items.filter((a) => !isEvent(a) && (pctOf(a) != null || a.grade)).sort((x, y) => y.due.localeCompare(x.due));
+    const withPct = res.filter((a) => pctOf(a) != null);
+    const avg = (list) => list.length ? list.reduce((sum, a) => sum + pctOf(a), 0) / list.length : null;
+    const cur = currentTerm();
+    const yr = +todayStr().slice(0, 4);
+    const termList = withPct.filter((a) => +a.due.slice(0, 4) === cur.year && termOf(a) === cur.n);
+    const yearList = withPct.filter((a) => +a.due.slice(0, 4) === yr);
+    const stat = (label, list, main) => `<div class="stat ${main ? "main" : ""}"><span class="k">${label}</span><b>${list.length ? fmtPct(avg(list)) : "–"}</b><small>${list.length} result${list.length === 1 ? "" : "s"}</small></div>`;
+    let html = `<div class="screen-title">Grades</div>`;
+    if (!res.length) {
+      return html + `<div class="stats">${stat("Term " + cur.n, [], true)}${stat(String(yr), [])}${stat("Overall", [])}</div>
+        <div class="empty" style="margin-top:14px"><strong>No results yet</strong>Open a marked assessment and type your score, like 80% or 18/20, then tap the grade letter. Your averages show up here.</div>
+        <button class="addpdf" type="button" id="addResult">+ Add a past result</button>`;
+    }
+    const firstDue = withPct.length ? withPct[withPct.length - 1].due : null;
+    html += `<div class="stats">${stat("Term " + cur.n + (cur.year !== yr ? " " + cur.year : ""), termList, true)}${stat(String(yr), yearList)}${stat("Overall", withPct)}</div>`;
+    html += `<p class="statnote">${firstDue ? "Overall is every result since " + esc(parse(firstDue).toLocaleDateString("en-AU", { month: "long", year: "numeric" })) + "." : ""}${res.length > withPct.length ? " Results with only a letter grade aren’t in the % averages." : ""}</p>`;
+    html += `<div class="group-label"><span>${yr} by term</span></div><div class="terms4">${[1, 2, 3, 4].map((n) => {
+      const l = yearList.filter((a) => termOf(a) === n);
+      return `<div class="${cur.year === yr && cur.n === n ? "cur" : ""}"><span>Term ${n}</span><b>${l.length ? fmtPct(avg(l)) : "–"}</b></div>`;
+    }).join("")}</div>`;
+    const counts = {}; res.forEach((a) => { if (a.grade) counts[a.grade] = (counts[a.grade] || 0) + 1; });
+    const gks = Object.keys(counts).sort();
+    if (gks.length) html += `<div class="group-label"><span>Grades</span></div><div class="dist">${gks.map((g) => `<span><b>${esc(g)}</b>× ${counts[g]}</span>`).join("")}</div>`;
+    const bySub = new Map();
+    withPct.forEach((a) => { const k = subjKey(a.subject); if (!bySub.has(k)) bySub.set(k, { name: a.subject.trim(), list: [] }); bySub.get(k).list.push(a); });
+    const subs = [...bySub.values()].map((x) => ({ ...x, avg: avg(x.list) })).sort((x, y) => y.avg - x.avg);
+    if (subs.length) html += `<div class="group-label"><span>By subject</span></div><div class="list">${subs.map((x) => `<div class="subjavg">
+        <span class="nm"><i style="background:${subjectColor(x.name)}"></i><span>${esc(x.name)}</span></span>
+        <span class="v">${fmtPct(x.avg)}<small>${x.list.length} result${x.list.length === 1 ? "" : "s"}</small></span>
+        <span class="bar"><i style="width:${Math.max(2, Math.min(100, x.avg))}%;background:${subjectColor(x.name)}"></i></span></div>`).join("")}</div>`;
+    html += `<div class="group-label"><span>All results</span><span>${res.length}</span></div><div class="list">${res.map(cardHtml).join("")}</div>
+      <button class="addpdf" type="button" id="addResult">+ Add a past result</button>`;
+    return html;
+  }
+
+  // ---------- term dates screen ----------
+  function openTerms(year) { screen = { kind: "terms", year: year || +todayStr().slice(0, 4) }; $("screenLayer").hidden = false; renderScreen(); }
+  function renderTermsScreen() {
+    const y = screen.year;
+    const ts = termsFor(y) || [{}, {}, {}, {}];
+    const usingNsw = !termsCustom(y) && !!NSW_TERMS[String(y)];
+    const sc = $("screen");
+    sc.innerHTML = `
+      <div class="s-bar"><button class="textbtn left" type="button" data-close>Cancel</button>
+        <span class="s-ttl">Term dates</span><span style="min-width:60px"></span></div>
+      <form class="edit" id="termForm" novalidate>
+      <div class="s-body">
+        <div class="yearsw"><button class="round sm" type="button" id="tyPrev" aria-label="Previous year">‹</button><b>${y}</b><button class="round sm" type="button" id="tyNext" aria-label="Next year">›</button></div>
+        <p class="saved" style="margin:0;text-align:center">${usingNsw ? "These are the NSW school term dates. Change any that are different at your school." : termsCustom(y) ? "These are your saved term dates." : "Type in the first and last day of each term."}</p>
+        ${[0, 1, 2, 3].map((i) => {
+          const t = ts[i] || {};
+          const wks = t.start && t.end ? Math.ceil((Math.round((parse(t.end) - parse(t.start)) / 86400000) + 1) / 7) : 0;
+          return `<div class="termblock"><div class="tb-h">Term ${i + 1}${wks ? `<small>about ${wks} weeks</small>` : ""}</div>
+            <div class="f2"><label class="f">First day<input type="date" id="ts${i}" value="${esc(t.start || "")}"></label>
+            <label class="f">Last day<input type="date" id="te${i}" value="${esc(t.end || "")}"></label></div></div>`;
+        }).join("")}
+        <div class="err" id="tErr"></div>
+        ${NSW_TERMS[String(y)] && !usingNsw ? `<button class="btn" type="button" id="tReset">Go back to the NSW dates</button>` : ""}
+      </div>
+      <div class="s-foot"><button class="btn primary" type="submit" id="tSave">Save ${y} term dates</button></div>
+      </form>`;
+    $("tyPrev").onclick = () => { screen.year = y - 1; renderScreen(); };
+    $("tyNext").onclick = () => { screen.year = y + 1; renderScreen(); };
+    const persist = async (next) => {
+      termData = next; renderMain();
+      if (termRef) await termRef.set({ years: termData });
+    };
+    if ($("tReset")) $("tReset").onclick = async () => {
+      const next = { ...termData }; delete next[String(y)];
+      try { await persist(next); toast("Using the NSW dates for " + y); renderScreen(); } catch (e) { $("tErr").textContent = "Couldn’t save. Check your connection and try again."; }
+    };
+    $("termForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const arr = [0, 1, 2, 3].map((i) => ({ start: $("ts" + i).value, end: $("te" + i).value }));
+      for (let i = 0; i < 4; i++) {
+        const t = arr[i];
+        if (!t.start || !t.end) { $("tErr").textContent = `Fill in the first and last day of Term ${i + 1}.`; return; }
+        if (t.end < t.start) { $("tErr").textContent = `Term ${i + 1} ends before it starts. Check the dates.`; return; }
+        if (i && t.start <= arr[i - 1].end) { $("tErr").textContent = `Term ${i + 1} starts before Term ${i} ends. Check the dates.`; return; }
+      }
+      const btn = $("tSave"); btn.disabled = true; btn.textContent = "Saving…";
+      try { await persist({ ...termData, [String(y)]: arr }); closeScreen(); toast("Term dates saved"); }
+      catch (err) { btn.disabled = false; btn.textContent = "Save " + y + " term dates"; $("tErr").textContent = "Couldn’t save. Check your connection and try again."; }
+    };
+  }
+
+  // ---------- diary ----------
+  const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+  function hwDue(h) {
+    if (h.done) return { cls: "done", big: "✓", small: "done" };
+    const n = daysUntil(h.due);
+    if (n < 0) return { cls: "late", big: Math.abs(n) + "d", small: "late" };
+    if (n === 0) return { cls: "soon", big: "Today", small: "due" };
+    if (n === 1) return { cls: "soon", big: "Tmrw", small: "due" };
+    return { cls: n <= 3 ? "soon" : "", big: n + "d", small: shortDate(h.due) };
+  }
+  function hwRow(h) {
+    const w = hwDue(h);
+    return `<div class="hw ${h.done ? "isdone" : ""}">
+      <button class="tick" type="button" data-hwtick="${esc(h.id)}" aria-label="${h.done ? "Mark as not done" : "Mark as done"}" aria-pressed="${!!h.done}">${TICK}</button>
+      <button class="hw-body" type="button" data-hwopen="${esc(h.id)}">
+        <span class="hw-sub"><i style="background:${subjectColor(h.subject)}"></i><span>${esc(h.subject)}</span></span>
+        <span class="hw-what">${esc(h.task)}</span>
+        <span class="hw-dates">Got ${esc(shortDate(h.given))} · Due ${esc(parse(h.due).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" }))}</span>
+      </button>
+      <span class="when ${w.cls}"><b>${esc(w.big)}</b>${esc(w.small)}</span></div>`;
+  }
+  function renderDiary() {
+    const todo = hw.filter((h) => !h.done).sort((a, b) => a.due.localeCompare(b.due) || a.given.localeCompare(b.given));
+    const done = hw.filter((h) => h.done).sort((a, b) => b.due.localeCompare(a.due));
+    const late = todo.filter((h) => daysUntil(h.due) < 0);
+    const soon = todo.filter((h) => { const n = daysUntil(h.due); return n >= 0 && n <= 1; });
+    const later = todo.filter((h) => daysUntil(h.due) > 1);
+    const group = (label, list, cls) => list.length ? `<div class="group-label ${cls || ""}"><span>${label}</span><span>${list.length}</span></div><div class="list">${list.map(hwRow).join("")}</div>` : "";
+    let html = `<div class="screen-title">Homework diary</div>`;
+    if (!hw.length) return html + `<div class="empty"><strong>No homework logged</strong>Tap the + button to write down homework when you get it.</div>`;
+    if (!todo.length) html += `<div class="empty"><strong>All done</strong>No homework left to do. Tap + when you get more.</div>`;
+    html += group("Late", late, "late") + group("Due today & tomorrow", soon) + group("Coming up", later);
+    if (done.length) {
+      const shown = showAllDone ? done : done.slice(0, 5);
+      html += `<div class="group-label"><span>Done</span><span>${done.length}</span></div><div class="list">${shown.map(hwRow).join("")}</div>`;
+      if (done.length > 5) html += `<button class="showmore" type="button" id="hwMore">${showAllDone ? "Show less" : "Show all " + done.length + " done"}</button>`;
+    }
+    return html;
+  }
+  async function saveHw(id, data) {
+    if (hwCol) await hwCol.doc(id).set(data);
+    const i = hw.findIndex((x) => x.id === id);
+    if (i >= 0) hw[i] = { id, ...data }; else hw.push({ id, ...data });
+    renderMain();
+  }
+  async function toggleHw(id) {
+    const h = hw.find((x) => x.id === id); if (!h) return;
+    const done = !h.done; h.done = done; renderMain();
+    try { if (hwCol) await hwCol.doc(id).update({ done }); if (done) toast("Ticked off"); }
+    catch (e) { h.done = !done; renderMain(); toast("Couldn’t save. Try again."); }
+  }
+
+  function renderHwForm() {
+    const editing = screen.mode === "edit";
+    const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return ymd(d); })();
+    const h = editing ? hw.find((x) => x.id === screen.id) : { given: todayStr(), due: tomorrow };
+    if (!h) return closeScreen();
+    const subjects = [...new Set([...hw.map((x) => x.subject), ...items.map((x) => x.subject)].filter(Boolean))];
+    const sc = $("screen");
+    sc.innerHTML = `
+      <div class="s-bar"><button class="textbtn left" type="button" data-close>Cancel</button>
+        <span class="s-ttl">${editing ? "Edit homework" : "New homework"}</span><span style="min-width:60px"></span></div>
+      <form class="edit" id="hwForm" novalidate>
+      <div class="s-body">
+        <label class="f">Subject<input type="text" id="hSubject" list="hSubjList" value="${esc(h.subject || "")}" placeholder="e.g. English" autocomplete="off"></label>
+        <label class="f">What is it?<textarea id="hTask" placeholder="e.g. Read chapter 4 and answer questions 1–6" style="min-height:110px">${esc(h.task || "")}</textarea></label>
+        <div class="f2">
+          <label class="f">Day I got it<input type="date" id="hGiven" value="${esc(h.given)}"></label>
+          <label class="f">Day it’s due<input type="date" id="hDue" value="${esc(h.due)}"></label>
+        </div>
+        <datalist id="hSubjList">${subjects.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
+        <div class="err" id="hErr"></div>
+        ${editing ? `<div id="hwConfirm"><button class="btn danger" type="button" id="hwDel">Delete homework</button></div>` : ""}
+      </div>
+      <div class="s-foot"><button class="btn primary" type="submit" id="hSubmit">${editing ? "Save changes" : "Add to diary"}</button></div>
+      </form>`;
+    $("hwForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const data = { subject: $("hSubject").value.trim(), task: $("hTask").value.trim(), given: $("hGiven").value, due: $("hDue").value };
+      if (!data.subject || !data.task || !data.given || !data.due) { $("hErr").textContent = "Fill in the subject, what it is, and both dates."; return; }
+      if (data.due < data.given) { $("hErr").textContent = "The due date is before the day you got it. Check the dates."; return; }
+      const btn = $("hSubmit"); const label = btn.textContent; btn.disabled = true; btn.textContent = "Saving…";
+      try {
+        if (editing) { const { id: _omit, ...prev } = h; await saveHw(h.id, { ...prev, ...data, done: !!h.done }); toast("Saved"); }
+        else { const id = "h" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); await saveHw(id, { ...data, done: false, created: new Date().toISOString() }); toast("Added to diary"); }
+        closeScreen();
+      } catch (err) { btn.disabled = false; btn.textContent = label; $("hErr").textContent = "Couldn’t save. Check your connection and try again."; }
+    };
+    if (editing) $("hwDel").onclick = () => {
+      $("hwConfirm").innerHTML = `<div class="confirm"><span>Delete this homework? This can’t be undone.</span><div class="btns"><button class="btn" type="button" id="hwNo">Keep it</button><button class="btn danger" type="button" id="hwYes">Delete</button></div></div>`;
+      $("hwNo").onclick = () => renderScreen();
+      $("hwYes").onclick = async () => {
+        try { if (hwCol) await hwCol.doc(h.id).delete(); hw = hw.filter((x) => x.id !== h.id); closeScreen(); renderMain(); toast("Deleted"); }
+        catch (err) { $("hErr").textContent = "Couldn’t delete. Try again."; }
+      };
+    };
+    if (!editing) setTimeout(() => $("hSubject") && $("hSubject").focus(), 60);
+  }
+
+  let notice = "";
+  function renderMain() {
+    $("todayLbl").textContent = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
+    const upCount = items.filter((a) => !isDone(a) && daysUntil(a.due) >= 0 && daysUntil(a.due) <= 7).length;
+    $("upBadge").hidden = !upCount; $("upBadge").textContent = upCount;
+    const keepScroll = $("main").scrollTop;
+    const hwCount = hw.filter((h) => !h.done && daysUntil(h.due) <= 1).length;
+    $("hwBadge").hidden = !hwCount; $("hwBadge").textContent = hwCount;
+    $("fab").setAttribute("aria-label", tab === "diary" ? "Add homework" : "Add something");
+    $("main").innerHTML = (tab === "up" ? renderUpcoming() : tab === "cal" ? renderCalendar() : tab === "diary" ? renderDiary() : tab === "grades" ? renderGrades() : renderDone()) + notice;
+    if ($("addResult")) $("addResult").onclick = () => { screen = { kind: "form", mode: "new", ekind: "assessment", preset: { status: "Marked" } }; $("screenLayer").hidden = false; renderScreen(); };
+    $("main").scrollTop = keepScroll;
+    if (tab === "cal") {
+      $("prevM").onclick = () => { view = new Date(view.getFullYear(), view.getMonth() - 1, 1); renderMain(); };
+      $("nextM").onclick = () => { view = new Date(view.getFullYear(), view.getMonth() + 1, 1); renderMain(); };
+      $("todayBtn").onclick = () => { const n = new Date(); view = new Date(n.getFullYear(), n.getMonth(), 1); selDay = todayStr(); renderMain(); };
+      $("addOnDay").onclick = () => openAdd(selDay || todayStr());
+    }
+    if (tab === "diary" && $("hwMore")) $("hwMore").onclick = () => { showAllDone = !showAllDone; renderMain(); };
+    if (screen && screen.kind === "detail" && !$("screen").contains(document.activeElement)) renderScreen();
+  }
+
+  // ---------- screens ----------
+  function openDetail(id) { screen = { kind: "detail", id }; $("screenLayer").hidden = false; renderScreen(); }
+  function openForm(mode, date, id, ekind) { screen = { kind: "form", mode, date, id, ekind }; $("screenLayer").hidden = false; renderScreen(); }
+  function closeScreen() { screen = null; $("screenLayer").hidden = true; $("screen").innerHTML = ""; }
+  function renderScreen() {
+    if (!screen) return;
+    if (screen.kind === "form") return renderForm();
+    if (screen.kind === "hwform") return renderHwForm();
+    if (screen.kind === "terms") return renderTermsScreen();
+    const a = items.find((x) => x.id === screen.id);
+    if (!a) return closeScreen();
+    renderDetail(a);
+  }
+
+  function renderDetail(a) {
+    const w = whenInfo(a);
+    const sc = $("screen");
+    const n = daysUntil(a.due);
+    const files = (a.files || []).map((f) => `<div class="file"><span class="ico">PDF</span><button type="button" class="open" data-pdf="${esc(f.id)}" data-name="${esc(f.name)}">${esc(f.name)}</button>${assets ? `<button type="button" class="x" data-rmfile="${esc(f.id)}" aria-label="Remove ${esc(f.name)}">×</button>` : ""}</div>`).join("");
+    let countBig = w.cls === "done" ? (a.status === "Marked" ? (pctOf(a) != null ? fmtPct(pctOf(a)) : esc(a.grade || a.mark || "Done")) : "Done") : w.cls === "late" ? Math.abs(n) + " days" : n === 0 ? "Today" : n + (n === 1 ? " day" : " days");
+    let countSmall = w.cls === "done" ? (a.status === "Marked" && a.grade && pctOf(a) != null ? "Grade " + a.grade : a.status) : w.cls === "late" ? "overdue" : n === 0 ? "it’s due" : "to go";
+    const ev = isEvent(a);
+    if (ev) {
+      const ne = daysUntil(evEnd(a));
+      if (ne < 0) { countBig = "Past"; countSmall = "this has happened"; }
+      else if (n < 0 || (n === 0 && ne > 0)) { countBig = "On now"; countSmall = "until " + shortDate(evEnd(a)); }
+      else if (n === 0) { countBig = "Today"; countSmall = a.time || ""; }
+      else { countBig = n + (n === 1 ? " day" : " days"); countSmall = "to go"; }
+    }
+    const factsHtml = ev ? `
+        <div class="facts">
+          <div class="fact" style="grid-column:1/-1"><span>${evEnd(a) !== a.due ? "Dates" : "Date"}</span><b>${esc(dateRange(a))}</b></div>
+          <div class="fact"><span>Time</span><b>${esc(a.time || "—")}</b></div>
+          <div class="fact"><span>Location</span><b>${esc(a.location || "—")}</b></div>
+        </div>
+        ${a.bring ? `<div><div class="label">What to bring</div><div class="desc">${esc(a.bring)}</div></div>` : ""}` : `
+        <div class="facts">
+          <div class="fact"><span>Due</span><b>${niceDate(a.due)}</b></div>
+          <div class="fact"><span>Type</span><b>${esc(a.type || "—")}</b></div>
+          <div class="fact"><span>Weighting</span><b class="mono">${a.weight ? esc(a.weight) + "%" : "—"}</b></div>
+          <div class="fact"><span>Teacher</span><b>${esc(a.teacher || "—")}</b></div>
+        </div>
+        <div><div class="label">Status</div>
+          <div class="seg" role="group" aria-label="Status">${STATUSES.map((s) => `<button type="button" data-status="${s}" aria-pressed="${s === a.status}">${s === "Not started" ? "To do" : s}</button>`).join("")}</div></div>
+        <div><div class="label"><span>Result</span><span class="hint">Term ${termOf(a)}, ${a.due.slice(0, 4)}</span></div>
+          <div class="scoreline"><input type="text" id="markIn" inputmode="decimal" value="${esc(a.score ?? a.mark ?? "")}" placeholder="Score, e.g. 80% or 18/20"><span class="pct" id="pctOut">${pctOf(a) != null ? fmtPct(pctOf(a)) : ""}</span></div>
+          <div class="label" style="margin-top:12px">Grade</div>
+          <div class="gradechips" role="group" aria-label="Grade">${GRADES.map((g) => `<button type="button" class="gch" data-grade="${g}" aria-pressed="${a.grade === g}">${g}</button>`).join("")}</div>
+          <div class="err" id="markErr" style="margin-top:6px"></div></div>`;
+    sc.innerHTML = `
+      <div class="s-bar"><button class="textbtn left" type="button" data-close aria-label="Back" style="display:flex;align-items:center;gap:2px">${ICON_BACK}Back</button>
+        <span class="s-ttl"></span><button class="textbtn right" type="button" id="editBtn">Edit</button></div>
+      <div class="s-body">
+        <div class="d-top">
+          ${ev ? `<span class="pill"><span class="dot" style="background:${itemColor(a)}"></span>${esc(a.category || "Event")}</span>` : `<span class="pill"><span class="dot" style="background:${subjectColor(a.subject)}"></span>${esc(a.subject)}</span>`}
+          <h2>${esc(a.title)}</h2>
+          <div class="count ${w.cls}"><b>${countBig}</b><span>${esc(countSmall)}</span></div>
+        </div>
+${factsHtml}
+        ${a.details ? `<div><div class="label">${ev ? "Details" : "Task details"}</div><div class="desc">${esc(a.details)}</div></div>` : ""}
+        <div>
+          <div class="label">${ev ? "Attachments (PDF)" : "Assessment notification (PDF)"}</div>
+          <div class="files">${files}</div>
+          ${assets ? `<label class="addpdf" id="drop" for="pdfIn">+ Attach PDF from device</label><input type="file" id="pdfIn" accept="application/pdf,.pdf" multiple hidden><div class="err" id="upMsg" style="margin-top:6px"></div>`
+            : (files ? "" : `<div class="desc" style="color:var(--muted)">Open this app in Claude while signed in to attach PDFs.</div>`)}
+        </div>
+        <div>
+          <div class="label"><span>My notes</span><span class="saved" id="savedMsg"></span></div>
+          <textarea id="notesIn" placeholder="${ev ? "Permission note signed? Money paid? Reminders…" : "What to study, what the teacher said, reminders…"}">${esc(a.notes || "")}</textarea>
+        </div>
+        <div id="confirmBox"><button class="btn danger" type="button" id="delBtn">${ev ? "Delete event" : "Delete assessment"}</button></div>
+      </div>`;
+
+    sc.querySelectorAll("[data-status]").forEach((b) => (b.onclick = () => {
+      const st = b.dataset.status; b.blur();
+      patchItem(a.id, { status: st }).then(() => { renderScreen(); toast(st === "Submitted" || st === "Marked" ? "Nice one! Moved to Done" : "Status updated"); });
+    }));
+    if ($("markIn")) {
+      $("markIn").oninput = (e) => { const v = parseScore(e.target.value); $("pctOut").textContent = v != null ? fmtPct(v) : ""; $("markErr").textContent = ""; };
+      $("markIn").onchange = (e) => {
+        const v = e.target.value.trim();
+        const pc = parseScore(v);
+        if (v && pc == null) { $("markErr").textContent = "Type a percentage like 80 or a score like 18/20."; return; }
+        e.target.blur();
+        const patch = { score: v, mark: v, pct: pc };
+        if (pc != null && a.status !== "Marked") patch.status = "Marked";
+        patchItem(a.id, patch).then(() => { renderScreen(); toast(pc != null ? "Result saved" : "Result cleared"); }).catch(() => { $("markErr").textContent = "Couldn’t save. Try again."; });
+      };
+    }
+    sc.querySelectorAll("[data-grade]").forEach((b) => (b.onclick = () => {
+      const g = a.grade === b.dataset.grade ? "" : b.dataset.grade;
+      const patch = { grade: g };
+      if (g && a.status !== "Marked") patch.status = "Marked";
+      patchItem(a.id, patch).then(() => { renderScreen(); toast(g ? "Grade " + g + " saved" : "Grade cleared"); });
+    }));
+    let nt;
+    $("notesIn").oninput = (e) => {
+      $("savedMsg").textContent = "Saving…"; clearTimeout(nt);
+      nt = setTimeout(async () => {
+        try { if (col) await col.doc(a.id).update({ notes: e.target.value }); const it = items.find((x) => x.id === a.id); if (it) it.notes = e.target.value; $("savedMsg").textContent = "Saved"; }
+        catch (err) { $("savedMsg").textContent = "Couldn’t save. Keep typing to retry."; }
+      }, 700);
+    };
+    $("editBtn").onclick = () => openForm("edit", null, a.id);
+    $("delBtn").onclick = () => {
+      $("confirmBox").innerHTML = `<div class="confirm"><span>Delete “${esc(a.title)}” and its PDFs? This can’t be undone.</span><div class="btns"><button class="btn" type="button" id="noDel">Keep it</button><button class="btn danger" type="button" id="yesDel">Delete</button></div></div>`;
+      $("noDel").onclick = () => renderScreen();
+      $("yesDel").onclick = async () => { await removeItem(a.id); closeScreen(); toast("Deleted"); };
+    };
+    sc.querySelectorAll("[data-rmfile]").forEach((b) => (b.onclick = async () => {
+      const fid = b.dataset.rmfile;
+      try { await assets.delete(fid); } catch (e) {}
+      const cur = items.find((x) => x.id === a.id) || a;
+      await patchItem(a.id, { files: (cur.files || []).filter((f) => f.id !== fid) });
+      renderScreen(); toast("PDF removed");
+    }));
+    if (assets) {
+      const drop = $("drop");
+      const handle = async (list) => {
+        const chosen = [...list]; if (!chosen.length) return;
+        const pdfs = chosen.filter((f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
+        if (!pdfs.length) { $("upMsg").textContent = "Only PDF files can be attached."; return; }
+        const added = [];
+        try {
+          for (let i = 0; i < pdfs.length; i++) {
+            drop.textContent = `Uploading ${i + 1} of ${pdfs.length}…`;
+            const r = await assets.upload(pdfs[i], { type: "application/pdf" });
+            added.push({ id: r.id, name: pdfs[i].name });
+          }
+        } catch (e) {
+          $("upMsg").textContent = e && e.code === "too_large" ? "That PDF is over 20 MB. Try a smaller copy." : "Upload failed. Check your connection and try again.";
+        }
+        if (added.length) {
+          const cur = items.find((x) => x.id === a.id) || a;
+          await patchItem(a.id, { files: [...(cur.files || []), ...added] });
+          if (document.activeElement) document.activeElement.blur();
+          renderScreen(); toast(added.length > 1 ? added.length + " PDFs attached" : "PDF attached");
+        } else drop.textContent = "+ Attach PDF from device";
+      };
+      $("pdfIn").onchange = (e) => handle(e.target.files);
+      drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+      drop.ondragleave = () => drop.classList.remove("over");
+      drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); handle(e.dataTransfer.files); };
+    }
+  }
+
+  function renderForm() {
+    const editing = screen.mode === "edit";
+    const found = editing ? items.find((x) => x.id === screen.id) : null;
+    if (editing && !found) return closeScreen();
+    const ev = editing ? isEvent(found) : screen.ekind === "event";
+    const a = found || (ev ? { kind: "event", due: screen.date || todayStr(), category: "Excursion" } : { due: screen.date || todayStr(), type: "Assignment", status: (screen.preset && screen.preset.status) || "Not started" });
+    const assessFieldsHtml = ev ? "" : `
+        <label class="f">Subject<input type="text" id="fSubject" list="subjList" value="${esc(a.subject || "")}" placeholder="e.g. Mathematics" autocomplete="off"></label>
+        <label class="f">Assessment title<input type="text" id="fTitle" value="${esc(a.title || "")}" placeholder="e.g. Task 2 – Statistics investigation"></label>
+        <div class="f2">
+          <label class="f">Due date<input type="date" id="fDue" value="${esc(a.due)}"></label>
+          <label class="f">Type<select class="in" id="fType">${TYPES.map((t) => `<option ${t === a.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+        </div>
+        <div class="f2">
+          <label class="f">Weighting (%)<input type="number" id="fWeight" min="0" max="100" inputmode="numeric" value="${esc(a.weight || "")}" placeholder="e.g. 25"></label>
+          <label class="f">Status<select class="in" id="fStatus">${STATUSES.map((s) => `<option ${s === a.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+        </div>
+        <div class="f2">
+          <label class="f">Score (once marked)<input type="text" id="fScore" inputmode="decimal" value="${esc(a.score ?? a.mark ?? "")}" placeholder="e.g. 80% or 18/20"></label>
+          <label class="f">Counts for<select class="in" id="fTerm"><option value="">Auto: Term ${termOfDate(a.due)}</option>${[1, 2, 3, 4].map((t) => `<option value="${t}" ${+a.term === t ? "selected" : ""}>Term ${t}</option>`).join("")}</select></label>
+        </div>
+        <div><div class="label">Grade</div><div class="gradechips" role="group" aria-label="Grade">${GRADES.map((g) => `<button type="button" class="gch" data-fgrade="${g}" aria-pressed="${a.grade === g}">${g}</button>`).join("")}</div></div>
+        <label class="f">Teacher<input type="text" id="fTeacher" value="${esc(a.teacher || "")}" placeholder="Optional"></label>
+        <label class="f">Task details<textarea id="fDetails" placeholder="What the task asks for, format, length…">${esc(a.details || "")}</textarea></label>`;
+    const fieldsHtml = ev ? `
+        <label class="f">What kind of event<select class="in" id="eCat">${EVENT_TYPES.map((t) => `<option ${t === a.category ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+        <label class="f">Name<input type="text" id="eTitle" value="${esc(a.title || "")}" placeholder="e.g. Year 10 Geography excursion" autocomplete="off"></label>
+        <div class="f2">
+          <label class="f">Date<input type="date" id="eDate" value="${esc(a.due)}"></label>
+          <label class="f">End date (if more than 1 day)<input type="date" id="eEnd" value="${esc(a.endDate || "")}"></label>
+        </div>
+        <div class="f2">
+          <label class="f">Time<input type="text" id="eTime" value="${esc(a.time || "")}" placeholder="e.g. 8:30am – 2:30pm"></label>
+          <label class="f">Where<input type="text" id="eLoc" value="${esc(a.location || "")}" placeholder="e.g. Sydney Uni"></label>
+        </div>
+        <label class="f">What to bring<input type="text" id="eBring" value="${esc(a.bring || "")}" placeholder="e.g. permission note, hat, lunch, $25"></label>
+        <label class="f">Details<textarea id="fDetails" placeholder="Anything else you need to know…">${esc(a.details || "")}</textarea></label>` : null;
+    const subjects = [...new Set(items.map((x) => x.subject).filter(Boolean))];
+    let pending = [];
+    const sc = $("screen");
+    sc.innerHTML = `
+      <div class="s-bar"><button class="textbtn left" type="button" id="cancelF">Cancel</button>
+        <span class="s-ttl">${editing ? (ev ? "Edit event" : "Edit assessment") : (ev ? "New event" : "New assessment")}</span><span style="min-width:60px"></span></div>
+      <form class="edit" id="editForm" novalidate>
+      <div class="s-body">
+${fieldsHtml || assessFieldsHtml}
+        <div>
+          <div class="label">${ev ? "Attachments (PDF)" : "Assessment notification (PDF)"}</div>
+          <div class="files" id="pendList"></div>
+          ${assets ? `<label class="addpdf" for="fPdf">+ ${editing ? "Add another PDF" : "Attach PDF from device"}</label><input type="file" id="fPdf" accept="application/pdf,.pdf" multiple hidden>`
+            : `<div class="desc" style="color:var(--muted)">Open this app in Claude while signed in to attach PDFs.</div>`}
+        </div>
+        ${ev ? `<div><div class="label">Colour</div>${colPickHtml("eColor", itemColor(a))}</div>
+        <div><div class="label">Icon</div><div class="iconpick" role="group" aria-label="Icon">${Object.keys(EV_ICONS).map((k) => `<button type="button" class="icb" data-icon="${k}" aria-label="${EV_ICONS[k][0]}" title="${EV_ICONS[k][0]}" aria-pressed="${k === eventIcon(a)}">${svgIcon(k)}</button>`).join("")}</div></div>`
+          : `<div><div class="label"><span>Subject colour</span><span class="hint">Used for everything in this subject</span></div>${colPickHtml("fColor", subjectColor(a.subject))}</div>`}
+        <datalist id="subjList">${subjects.map((s) => `<option value="${esc(s)}">`).join("")}</datalist>
+        <div class="err" id="fErr"></div>
+      </div>
+      <div class="s-foot"><button class="btn primary" type="submit" id="fSubmit">${editing ? "Save changes" : (ev ? "Add event" : "Add assessment")}</button></div>
+      </form>`;
+
+    let colourTouched = false;
+    let chosenIcon = ev ? eventIcon(a) : null, iconTouched = false;
+    const paintIcons = () => {
+      if (!ev) return;
+      const c = $("eColor").value;
+      sc.querySelectorAll("[data-icon]").forEach((b) => {
+        const on = b.dataset.icon === chosenIcon; b.setAttribute("aria-pressed", on);
+        b.style.background = on ? c : ""; b.style.color = on ? inkFor(c) : "";
+      });
+    };
+    sc.querySelectorAll("[data-icon]").forEach((b) => (b.onclick = () => { chosenIcon = b.dataset.icon; iconTouched = true; paintIcons(); }));
+    const cp = bindColPick(sc, ev ? "eColor" : "fColor", (c, final) => { colourTouched = true; paintIcons(); });
+    paintIcons();
+    if (ev && $("eCat")) $("eCat").addEventListener("change", () => { if (!iconTouched && !a.icon) { chosenIcon = CAT_ICON[$("eCat").value] || "flag"; paintIcons(); } });
+    if (!ev && $("fSubject")) $("fSubject").addEventListener("input", () => { if (!colourTouched && cp) cp.set(subjectColor($("fSubject").value)); });
+    if (ev && $("eCat")) $("eCat").addEventListener("change", () => { if (!colourTouched && !a.color && cp) { cp.set(itemColor({ kind: "event", category: $("eCat").value })); paintIcons(); } });
+
+    let fGrade = ev ? "" : (a.grade || "");
+    sc.querySelectorAll("[data-fgrade]").forEach((b) => (b.onclick = () => {
+      fGrade = fGrade === b.dataset.fgrade ? "" : b.dataset.fgrade;
+      sc.querySelectorAll("[data-fgrade]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.fgrade === fGrade));
+    }));
+    if (!ev && $("fDue")) $("fDue").addEventListener("change", () => { const o = $("fTerm").options[0]; if ($("fDue").value) o.textContent = "Auto: Term " + termOfDate($("fDue").value); });
+
+    const drawPending = () => {
+      $("pendList").innerHTML = pending.map((f, i) => `<div class="file"><span class="ico">PDF</span><span class="open" style="cursor:default">${esc(f.name)}</span><button type="button" class="x" data-unpend="${i}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join("");
+      $("pendList").querySelectorAll("[data-unpend]").forEach((b) => (b.onclick = () => { pending.splice(+b.dataset.unpend, 1); drawPending(); }));
+    };
+    if ($("fPdf")) $("fPdf").onchange = (e) => {
+      const chosen = [...e.target.files];
+      const bad = chosen.filter((f) => f.type !== "application/pdf" && !/\.pdf$/i.test(f.name));
+      pending.push(...chosen.filter((f) => !bad.includes(f)));
+      $("fErr").textContent = bad.length ? "Only PDF files can be attached. Skipped: " + bad.map((f) => f.name).join(", ") : "";
+      e.target.value = ""; drawPending();
+    };
+
+    $("cancelF").onclick = () => { if (editing) { screen = { kind: "detail", id: a.id }; renderScreen(); } else closeScreen(); };
+    $("editForm").onsubmit = async (e) => {
+      e.preventDefault();
+      let data;
+      if (ev) {
+        data = {
+          kind: "event", category: $("eCat").value, title: $("eTitle").value.trim(), due: $("eDate").value, endDate: $("eEnd").value,
+          time: $("eTime").value.trim(), location: $("eLoc").value.trim(), bring: $("eBring").value.trim(), details: $("fDetails").value.trim(),
+          color: $("eColor").value.toLowerCase(), icon: chosenIcon,
+        };
+        if (!data.title || !data.due) { $("fErr").textContent = "Add a name and a date."; return; }
+        if (data.endDate && data.endDate < data.due) { $("fErr").textContent = "The end date is before the start date. Check the dates."; return; }
+        if (data.endDate === data.due) data.endDate = "";
+      } else {
+        data = {
+          subject: $("fSubject").value.trim(), title: $("fTitle").value.trim(), due: $("fDue").value,
+          type: $("fType").value, weight: $("fWeight").value.trim(), status: $("fStatus").value,
+          teacher: $("fTeacher").value.trim(), details: $("fDetails").value.trim(),
+        };
+        if (!data.subject || !data.title || !data.due) { $("fErr").textContent = "Add a subject, a title and a due date."; return; }
+        const sv = $("fScore").value.trim(), pc = parseScore(sv);
+        if (sv && pc == null) { $("fErr").textContent = "Type the score as a percentage like 80 or a mark like 18/20."; return; }
+        Object.assign(data, { score: sv, mark: sv, pct: pc, grade: fGrade, term: $("fTerm").value ? +$("fTerm").value : "" });
+        if ((pc != null || fGrade) && data.status !== "Marked") data.status = "Marked";
+        const chosen = $("fColor").value.toLowerCase();
+        if (chosen !== subjectColor(data.subject).toLowerCase()) saveSubjColor(data.subject, chosen);
+      }
+      const btn = $("fSubmit"); const label = btn.textContent; btn.disabled = true;
+      const uploaded = [];
+      try {
+        for (let i = 0; i < pending.length; i++) {
+          btn.textContent = `Uploading PDF ${i + 1} of ${pending.length}…`;
+          const r = await assets.upload(pending[i], { type: "application/pdf" });
+          uploaded.push({ id: r.id, name: pending[i].name });
+        }
+      } catch (err) {
+        btn.disabled = false; btn.textContent = label;
+        pending = pending.slice(uploaded.length); drawPending();
+        $("fErr").textContent = (err && err.code === "too_large" ? "A PDF is over 20 MB. Remove it or use a smaller copy" : "A PDF didn’t upload. Check your connection") + ", then tap the button again.";
+        if (!uploaded.length) return;
+      }
+      btn.textContent = "Saving…";
+      try {
+        if (editing) {
+          const { id, student, ...rest } = items.find((x) => x.id === a.id) || {};
+          await saveItem(a.id, { ...rest, ...data, files: [...(rest.files || []), ...uploaded] });
+          screen = { kind: "detail", id: a.id }; renderScreen(); toast("Saved");
+        } else {
+          const id = "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          await saveItem(id, { mark: "", ...data, notes: "", files: uploaded, created: new Date().toISOString() });
+          const d = parse(data.due); view = new Date(d.getFullYear(), d.getMonth(), 1);
+          screen = { kind: "detail", id }; renderScreen(); toast(ev ? "Event added" : "Assessment added");
+        }
+      } catch (err) {
+        btn.disabled = false; btn.textContent = label;
+        $("fErr").textContent = "Couldn’t save. Check your connection and try again.";
+      }
+    };
+    if (!editing) setTimeout(() => { const f = $(ev ? "eTitle" : "fSubject"); if (f) f.focus(); }, 60);
+  }
+
+  // ---------- add chooser ----------
+  function openAdd(date) {
+    $("sheet").setAttribute("aria-label", "Add something");
+    $("sheetLayer").hidden = false;
+    $("sheet").innerHTML = `
+      <div class="grab"></div>
+      <h3>What are you adding? <button class="pillbtn" type="button" data-closesheet>Cancel</button></h3>
+      ${date ? `<div class="forday">For ${esc(longDay(date))}</div>` : ""}
+      <div class="choices">
+        <button class="choice" type="button" data-add="assessment"><span class="ch-ic">${ICON_ASSESS}</span><span><b>Assessment</b><small>Exams, tests, assignments, projects</small></span></button>
+        <button class="choice" type="button" data-add="event"><span class="ch-ic">${ICON_EVENT}</span><span><b>Event</b><small>Excursions, symposiums, sport carnivals, camps, anything else for school</small></span></button>
+        <button class="choice" type="button" data-add="homework"><span class="ch-ic">${ICON_HW}</span><span><b>Homework</b><small>Goes in your diary</small></span></button>
+      </div>`;
+    $("sheet").querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => {
+      const k = b.dataset.add;
+      closeTheme();
+      if (k === "homework") { screen = { kind: "hwform", mode: "new" }; $("screenLayer").hidden = false; renderScreen(); }
+      else openForm("new", date, null, k);
+    }));
+  }
+
+  // ---------- theme sheet ----------
+  function openTheme() { $("sheet").setAttribute("aria-label", "Colour theme"); $("sheetLayer").hidden = false; renderTheme(); }
+  function closeTheme() { $("sheetLayer").hidden = true; }
+  let openSubj = null;
+  function renderSubjectsTab() {
+    const seen = new Map();
+    [...items.filter((x) => !isEvent(x)).map((x) => x.subject), ...hw.map((x) => x.subject)].forEach((n) => { const k = subjKey(n); if (k && !seen.has(k)) seen.set(k, n.trim()); });
+    const subs = [...seen.values()].sort((x, y) => x.localeCompare(y));
+    $("sheet").innerHTML = `
+      <div class="grab"></div>
+      <h3>Colour theme <button class="pillbtn" type="button" data-closesheet>Done</button></h3>
+      ${themeTabsHtml()}
+      ${subs.length ? `<div class="subjrows">${subs.map((n, i) => `<div class="subjrow"><button type="button" data-subjrow="${i}" aria-expanded="${openSubj === subjKey(n)}"><i style="background:${subjectColor(n)}"></i><span>${esc(n)}</span><small>${openSubj === subjKey(n) ? "Close" : "Change"}</small></button>${openSubj === subjKey(n) ? colPickHtml("sc" + i, subjectColor(n)) : ""}</div>`).join("")}</div>
+        <div class="saved">Event colours are set on each event: open it and tap Edit.</div>`
+        : `<div class="empty">Add an assessment or homework and its subject shows up here so you can give it a colour.</div>`}`;
+    bindThemeTabs();
+    $("sheet").querySelectorAll("[data-subjrow]").forEach((b) => (b.onclick = () => { const k = subjKey(subs[+b.dataset.subjrow]); openSubj = openSubj === k ? null : k; renderSubjectsTab(); }));
+    subs.forEach((n, i) => {
+      if (openSubj !== subjKey(n)) return;
+      bindColPick($("sheet"), "sc" + i, (c, final) => {
+        const dot = $("sheet").querySelector(`[data-subjrow="${i}"] i`); if (dot) dot.style.background = c;
+        if (final) saveSubjColor(n, c);
+      });
+    });
+  }
+  function themeTabsHtml() {
+    return `<div class="seg two three" role="tablist" aria-label="Which colour">
+        <button type="button" role="tab" data-ttab="primary" aria-pressed="${themeTab === "primary"}">Primary<small>Background</small></button>
+        <button type="button" role="tab" data-ttab="secondary" aria-pressed="${themeTab === "secondary"}">Secondary<small>Buttons</small></button>
+        <button type="button" role="tab" data-ttab="subjects" aria-pressed="${themeTab === "subjects"}">Subjects<small>Each subject</small></button>
+      </div>`;
+  }
+  function bindThemeTabs() { $("sheet").querySelectorAll("[data-ttab]").forEach((b) => (b.onclick = () => { themeTab = b.dataset.ttab; renderTheme(); })); }
+  function renderTheme() {
+    if (themeTab === "subjects") return renderSubjectsTab();
+    const primary = themeTab === "primary";
+    const key = primary ? "bgColor" : "accent";
+    const list = primary ? BACKGROUNDS : SWATCHES;
+    const cur = theme[key].toLowerCase();
+    const isPreset = list.some(([, c]) => c.toLowerCase() === cur);
+    $("sheet").innerHTML = `
+      <div class="grab"></div>
+      <h3>Colour theme <button class="pillbtn" type="button" data-closesheet>Done</button></h3>
+      <div class="tprev" aria-hidden="true">
+        <div class="tp-card"><span class="tp-av"></span><span class="tp-lines"><i></i><i></i></span><span class="tp-num">16d</span></div>
+        <span class="tp-btn">+</span>
+      </div>
+      ${themeTabsHtml()}
+      <div class="swatches">${list.map(([n, c]) => `<button class="sw" type="button" data-pick="${c}" aria-label="${n}" title="${n}" aria-pressed="${c.toLowerCase() === cur}" style="background:${c}"></button>`).join("")}</div>
+      <label class="custom" for="customColor">
+        <input type="color" id="customColor" value="${esc(theme[key])}">
+        <span class="c-t"><b>${isPreset ? "Pick any colour" : "Your colour"}</b><span>${esc(theme[key].toUpperCase())}</span></span>
+        <span class="c-go">Choose</span>
+      </label>
+      <button class="btn" type="button" id="resetTheme">Reset both to original</button>
+      <div class="datasec">
+        <div class="label" style="margin:0">Your data</div>
+        <p class="saved" style="margin:0">Back up saves all your assessments, events, homework, grades, PDFs and settings into one file. Restore adds them from a backup file.</p>
+        <div class="btns"><button class="btn" type="button" id="bkOut">Back up</button><label class="btn" for="bkIn">Restore</label></div>
+        <input type="file" id="bkIn" accept="application/json,.json" hidden>
+        <div id="bkConfirm"></div>
+        <div class="msg" id="bkMsg"></div>
+      </div>`;
+    bindBackup();
+    bindThemeTabs();
+    $("sheet").querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => { theme[key] = b.dataset.pick; applyTheme(); saveTheme(); renderTheme(); }));
+    $("customColor").oninput = (e) => { theme[key] = e.target.value; applyTheme(); };
+    $("customColor").onchange = (e) => { theme[key] = e.target.value; applyTheme(); saveTheme(); renderTheme(); };
+    $("resetTheme").onclick = () => { theme = { ...DEFAULT_THEME }; applyTheme(); saveTheme(); renderTheme(); toast("Back to the original look"); };
+  }
+
+  // ---------- backup & restore ----------
+  async function getBlob(id) {
+    if (assets && assets.get) return assets.get(id);
+    const res = await fetch("/_blob/" + encodeURIComponent(id));
+    if (!res.ok) throw new Error("http " + res.status);
+    return res.blob();
+  }
+  const blobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(b); });
+  function dataUrlToBlob(u, type) {
+    const i = u.indexOf(","); const bin = atob(u.slice(i + 1)); const arr = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
+    return new Blob([arr], { type: type || "application/pdf" });
+  }
+  async function makeBackup(progress) {
+    const files = {}; let missing = 0;
+    const ids = []; items.forEach((a) => (a.files || []).forEach((f) => ids.push(f)));
+    for (let i = 0; i < ids.length; i++) {
+      progress && progress(`Packing PDF ${i + 1} of ${ids.length}…`);
+      try { const b = await getBlob(ids[i].id); files[ids[i].id] = { name: ids[i].name, type: b.type || "application/pdf", data: await blobToDataUrl(b) }; }
+      catch (e) { missing++; }
+    }
+    return { backup: { app: "de-la-tracker", v: 1, exported: new Date().toISOString(), assessments: items, homework: hw, settings: { colors: { subjects: subjColors }, terms: { years: termData } }, files }, missing };
+  }
+  async function restoreBackup(obj, progress) {
+    const idMap = {}; let skipped = 0;
+    const fe = Object.entries(obj.files || {});
+    for (let i = 0; i < fe.length; i++) {
+      const [fid, f] = fe[i];
+      if (!assets) { skipped++; continue; }
+      progress && progress(`Restoring PDF ${i + 1} of ${fe.length}…`);
+      try { const r = await assets.upload(dataUrlToBlob(f.data, f.type), { type: f.type || "application/pdf" }); idMap[fid] = r.id; } catch (e) { skipped++; }
+    }
+    progress && progress("Restoring your assessments…");
+    for (const a of obj.assessments || []) {
+      if (!a || !a.id || !a.due) continue;
+      const { id, ...rest } = a;
+      rest.files = (rest.files || []).filter((x) => idMap[x.id]).map((x) => ({ ...x, id: idMap[x.id] }));
+      if (col) await col.doc(id).set(rest);
+    }
+    for (const h of obj.homework || []) { if (!h || !h.id) continue; const { id, ...rest } = h; if (hwCol) await hwCol.doc(id).set(rest); }
+    const st = obj.settings || {};
+    if (st.colors && st.colors.subjects && colorRef) await colorRef.set({ subjects: { ...subjColors, ...st.colors.subjects } });
+    if (st.terms && st.terms.years && termRef) await termRef.set({ years: { ...termData, ...st.terms.years } });
+    return { count: (obj.assessments || []).length + (obj.homework || []).length, skipped };
+  }
+  function bindBackup() {
+    const msg = (t) => { if ($("bkMsg")) $("bkMsg").textContent = t; };
+    $("bkOut").onclick = async () => {
+      const btn = $("bkOut"); btn.disabled = true;
+      try {
+        const { backup, missing } = await makeBackup(msg);
+        const name = "de-la-tracker-backup-" + todayStr() + ".json";
+        const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+        if (!downloads) { msg("Saving files isn’t available here."); btn.disabled = false; return; }
+        const r = await downloads.save({ filename: name, data: blob });
+        msg(r && r.status === "saved" ? "Backup saved as " + name + (missing ? ` (${missing} PDF${missing === 1 ? "" : "s"} couldn’t be included)` : "") : "Backup not saved.");
+      } catch (e) { msg("The backup didn’t save. Try again."); }
+      btn.disabled = false;
+    };
+    $("bkIn").onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+      let obj;
+      try { obj = JSON.parse(await f.text()); } catch (err) { msg("That file isn’t a DE LA TRACKER backup."); return; }
+      if (!obj || obj.app !== "de-la-tracker") { msg("That file isn’t a DE LA TRACKER backup."); return; }
+      const n = (obj.assessments || []).length, hn = (obj.homework || []).length, pn = Object.keys(obj.files || {}).length;
+      const when = obj.exported ? new Date(obj.exported).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" }) : "an earlier date";
+      $("bkConfirm").innerHTML = `<div class="confirm" style="border-color:var(--line)"><span>Restore the backup from ${esc(when)}? It has ${n} assessment${n === 1 ? "" : "s"} &amp; event${n === 1 ? "" : "s"}, ${hn} homework and ${pn} PDF${pn === 1 ? "" : "s"}. Anything already in the app stays.</span><div class="btns"><button class="btn" type="button" id="bkNo">Cancel</button><button class="btn primary" type="button" id="bkYes" style="font-size:15px;padding:10px">Restore</button></div></div>`;
+      $("bkNo").onclick = () => ($("bkConfirm").innerHTML = "");
+      $("bkYes").onclick = async () => {
+        $("bkConfirm").innerHTML = "";
+        try { const r = await restoreBackup(obj, msg); msg(`Restored ${r.count} item${r.count === 1 ? "" : "s"}${r.skipped ? ` (${r.skipped} PDF${r.skipped === 1 ? "" : "s"} couldn’t be restored)` : ""}.`); toast("Backup restored"); }
+        catch (err) { msg("The restore didn’t finish. Try again."); }
+      };
+    };
+  }
+
+  // ---------- PDF viewer ----------
+  let vBlob = null, vName = "", vToken = 0;
+  async function openPdf(id, name) {
+    const token = ++vToken;
+    vBlob = null; vName = name;
+    $("vName").textContent = name; $("vInfo").textContent = ""; $("vSave").hidden = true;
+    $("vPages").innerHTML = '<div class="v-msg">Opening PDF…</div>';
+    $("viewer").hidden = false;
+    try {
+      const blob = await getBlob(id);
+      if (token !== vToken) return;
+      vBlob = blob; $("vSave").hidden = !downloads;
+      if (!window.pdfjsLib) throw new Error("no pdfjs");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false }).promise;
+      if (token !== vToken) return;
+      $("vPages").innerHTML = "";
+      $("vInfo").textContent = pdf.numPages + (pdf.numPages === 1 ? " page" : " pages");
+      const width = Math.min(900, $("vPages").clientWidth - 32);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      for (let p = 1; p <= pdf.numPages; p++) {
+        if (token !== vToken) return;
+        const page = await pdf.getPage(p);
+        const base = page.getViewport({ scale: 1 });
+        const vp = page.getViewport({ scale: (width / base.width) * dpr });
+        const c = document.createElement("canvas");
+        c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+        c.setAttribute("aria-label", "Page " + p);
+        $("vPages").appendChild(c);
+        await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+      }
+    } catch (e) {
+      if (token !== vToken) return;
+      $("vPages").innerHTML = '<div class="v-msg">This PDF couldn’t be shown here. ' + (vBlob && downloads ? "Use “Save a copy” to open it on your device." : "Close it and try again in a moment.") + "</div>";
+    }
+  }
+  function closePdf() { vToken++; $("viewer").hidden = true; $("vPages").innerHTML = ""; }
+  $("vClose").onclick = closePdf;
+  $("vSave").onclick = async () => {
+    if (!downloads || !vBlob) return;
+    try { const r = await downloads.save({ filename: /\.pdf$/i.test(vName) ? vName : vName + ".pdf", data: vBlob }); if (r && r.status === "saved") toast("Saved"); }
+    catch (e) { if (e && e.code === "unavailable") $("vSave").hidden = true; }
+  };
+
+  // ---------- events ----------
+  document.addEventListener("click", (e) => {
+    const pdfBtn = e.target.closest("[data-pdf]");
+    if (pdfBtn) { openPdf(pdfBtn.dataset.pdf, pdfBtn.dataset.name); return; }
+    if (e.target.closest("[data-closesheet]")) { closeTheme(); return; }
+    if (e.target.closest("[data-close]")) { closeScreen(); return; }
+    if (e.target.closest("[data-terms]")) { openTerms(); return; }
+    const tk = e.target.closest("[data-hwtick]");
+    if (tk) { toggleHw(tk.dataset.hwtick); return; }
+    const ho = e.target.closest("[data-hwopen]");
+    if (ho) { screen = { kind: "hwform", mode: "edit", id: ho.dataset.hwopen }; $("screenLayer").hidden = false; renderScreen(); return; }
+    const o = e.target.closest("[data-open]");
+    if (o) { openDetail(o.dataset.open); return; }
+    const d = e.target.closest("[data-day]");
+    if (d) {
+      selDay = d.dataset.day;
+      const dt = parse(selDay);
+      if (dt.getMonth() !== view.getMonth()) view = new Date(dt.getFullYear(), dt.getMonth(), 1);
+      renderMain();
+    }
+  });
+  document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; $("main").scrollTop = 0; renderMain(); }));
+  $("fab").onclick = () => {
+    if (tab === "diary") { screen = { kind: "hwform", mode: "new" }; $("screenLayer").hidden = false; renderScreen(); return; }
+    openAdd(tab === "cal" ? (selDay || todayStr()) : null);
+  };
+  $("themeBtn").onclick = openTheme;
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!$("viewer").hidden) closePdf();
+    else if (!$("sheetLayer").hidden) closeTheme();
+    else if (screen) closeScreen();
+  });
+
+  renderMain();
+
+  // ---------- connect ----------
+  (async () => {
+    const db = window.claude ? await window.claude.use("db") : null;
+    try { assets = window.claude ? await window.claude.use("assets") : null; } catch (e) { assets = null; }
+    try { downloads = window.claude ? await window.claude.use("downloads") : null; } catch (e) { downloads = null; }
+    if (vBlob && downloads) $("vSave").hidden = false;
+    if (screen) renderScreen();
+    if (!db) {
+      notice = '<div class="notice">Sign in to Claude to save assessments. Anything added now stays only until you close this page.</div>';
+      renderMain();
+      return;
+    }
+    col = db.collection("assessments");
+    col.onSnapshot((snap) => {
+      items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => a.due);
+      if (screen && screen.kind !== "detail") { const keep = screen; screen = null; renderMain(); screen = keep; }
+      else renderMain();
+    }, () => {
+      notice = '<div class="notice">Couldn’t load your assessments. Refresh the page to try again.</div>';
+      renderMain();
+    });
+    termRef = db.doc("settings/terms");
+    termRef.onSnapshot((snap) => {
+      const d = snap.exists ? snap.data() : null;
+      termData = (d && d.years && typeof d.years === "object") ? d.years : {};
+      if (screen && screen.kind !== "detail") { const keep = screen; screen = null; renderMain(); screen = keep; } else renderMain();
+    }, () => {});
+    colorRef = db.doc("settings/colors");
+    colorRef.onSnapshot((snap) => {
+      const d = snap.exists ? snap.data() : null;
+      subjColors = (d && d.subjects && typeof d.subjects === "object") ? d.subjects : {};
+      if (screen && screen.kind !== "detail") { const keep = screen; screen = null; renderMain(); screen = keep; } else renderMain();
+    }, () => {});
+    hwCol = db.collection("homework");
+    hwCol.onSnapshot((snap) => {
+      hw = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((h) => h.due && h.given);
+      if (screen && screen.kind !== "detail") { const keep = screen; screen = null; renderMain(); screen = keep; }
+      else renderMain();
+    }, () => {});
+  })();
+})();
+</script>
+
+</body>
+</html>
