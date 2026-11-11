@@ -742,7 +742,8 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     const later = up.filter((a) => daysUntil(a.due) > 7);
     const group = (label, list, cls) => list.length ? `<div class="group-label ${cls || ""}"><span>${label}</span><span>${list.length}</span></div><div class="list">${list.map(cardHtml).join("")}</div>` : "";
     html += group("Overdue", late, "late") + group("Next 7 days", week) + group("Later", later);
-    if (!items.length) html += `<div class="group-label"><span>Assessments</span></div><div class="empty"><strong>Nothing logged yet</strong>Tap the + button to add an assessment, an event like an excursion, or homework.</div>`;
+    if (!items.length) html += `<div class="group-label"><span>Assessments</span></div><div class="empty"><strong>Nothing logged yet</strong>Tap the + button to add an assessment, an event like an excursion, or homework.</div>
+      <button class="addpdf" type="button" id="goRestore">Already have a backup file? Restore it here</button>`;
     return html;
   }
 
@@ -1017,6 +1018,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
       $("todayBtn").onclick = () => { const n = new Date(); view = new Date(n.getFullYear(), n.getMonth(), 1); selDay = todayStr(); renderMain(); };
       $("addOnDay").onclick = () => openAdd(selDay || todayStr());
     }
+    if ($("goRestore")) $("goRestore").onclick = () => { themeTab = "primary"; openTheme(); setTimeout(() => { const d = document.querySelector(".datasec"); if (d) d.scrollIntoView({ block: "end" }); }, 50); };
     if (tab === "diary" && $("hwMore")) $("hwMore").onclick = () => { showAllDone = !showAllDone; renderMain(); };
     if (screen && screen.kind === "detail" && !$("screen").contains(document.activeElement)) renderScreen();
   }
