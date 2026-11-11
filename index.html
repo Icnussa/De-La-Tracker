@@ -118,16 +118,16 @@
 }
 [hidden] { display: none !important; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; background: var(--bg); color: var(--fg); }
-body { font-family: var(--body); font-size: 15px; line-height: 1.45; overflow: hidden; }
+html, body { height: 100%; background: var(--bg); color: var(--fg); overflow: hidden; overscroll-behavior: none; }
+body { font-family: var(--body); font-size: 15px; line-height: 1.45; position: fixed; inset: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- shell ---------- */
-.app { height: 100%; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; position: relative; background: var(--bg); }
+.app { position: fixed; top: 0; bottom: 0; left: 0; right: 0; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); }
 @media (min-width: 600px) { .app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
-.topbar { display: flex; align-items: center; gap: 12px; padding-block: 14px 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.topbar { display: flex; align-items: center; gap: 12px; padding-top: calc(14px + env(safe-area-inset-top, 0px)); padding-bottom: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
 .topbar .ttl { flex: 1; min-width: 0; }
 .topbar h1 { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; margin: 0; letter-spacing: -0.02em; }
 .topbar h1 span { color: var(--accent); }
@@ -139,13 +139,13 @@ button { cursor: pointer; }
 .main { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-block: 4px 110px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
 .screen-title { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 18px 0 10px; }
 
-.tabbar { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.tabbar { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); background: var(--surface); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: var(--gut-l); padding-right: var(--gut-r); }
 .tab { background: transparent; border: 0; padding: 9px 4px 10px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
 .tab svg { width: 22px; height: 22px; }
 .tab[aria-selected="true"] { color: var(--accent); }
 .tab .badge { font-family: var(--mono); font-size: 10px; background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 0 5px; margin-left: 2px; }
 
-.fab { position: absolute; right: var(--gut-r); bottom: 78px; width: 58px; height: 58px; border-radius: 18px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); z-index: 5; }
+.fab { position: absolute; right: var(--gut-r); bottom: calc(78px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; border-radius: 18px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); z-index: 5; }
 .fab svg { width: 26px; height: 26px; }
 .fab:active { transform: scale(0.96); }
 
@@ -254,6 +254,9 @@ button { cursor: pointer; }
 .scoreline { display: flex; gap: 10px; align-items: center; }
 .scoreline input { flex: 1; min-width: 0; }
 .scoreline .pct { font-family: var(--mono); font-weight: 700; font-size: 18px; min-width: 64px; text-align: right; }
+
+.fpick { position: relative; overflow: hidden; }
+.fpick input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
 
 /* ---------- backup ---------- */
 .datasec { border-top: 1px solid var(--line); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -1086,7 +1089,7 @@ ${factsHtml}
         <div>
           <div class="label">${ev ? "Attachments (PDF)" : "Assessment notification (PDF)"}</div>
           <div class="files">${files}</div>
-          ${assets ? `<label class="addpdf" id="drop" for="pdfIn">+ Attach PDF from device</label><input type="file" id="pdfIn" accept="application/pdf,.pdf" multiple hidden><div class="err" id="upMsg" style="margin-top:6px"></div>`
+          ${assets ? `<label class="addpdf fpick" id="drop"><span id="dropTxt">+ Attach PDF from device</span><input type="file" id="pdfIn" accept="application/pdf,.pdf" multiple aria-label="Attach PDF from device"></label><div class="err" id="upMsg" style="margin-top:6px"></div>`
             : (files ? "" : `<div class="desc" style="color:var(--muted)">Open this app in Claude while signed in to attach PDFs.</div>`)}
         </div>
         <div>
@@ -1148,7 +1151,7 @@ ${factsHtml}
         const added = [];
         try {
           for (let i = 0; i < pdfs.length; i++) {
-            drop.textContent = `Uploading ${i + 1} of ${pdfs.length}…`;
+            $("dropTxt").textContent = `Uploading ${i + 1} of ${pdfs.length}…`;
             const r = await assets.upload(pdfs[i], { type: "application/pdf" });
             added.push({ id: r.id, name: pdfs[i].name });
           }
@@ -1160,7 +1163,7 @@ ${factsHtml}
           await patchItem(a.id, { files: [...(cur.files || []), ...added] });
           if (document.activeElement) document.activeElement.blur();
           renderScreen(); toast(added.length > 1 ? added.length + " PDFs attached" : "PDF attached");
-        } else drop.textContent = "+ Attach PDF from device";
+        } else $("dropTxt").textContent = "+ Attach PDF from device";
       };
       $("pdfIn").onchange = (e) => handle(e.target.files);
       drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
@@ -1218,7 +1221,7 @@ ${fieldsHtml || assessFieldsHtml}
         <div>
           <div class="label">${ev ? "Attachments (PDF)" : "Assessment notification (PDF)"}</div>
           <div class="files" id="pendList"></div>
-          ${assets ? `<label class="addpdf" for="fPdf">+ ${editing ? "Add another PDF" : "Attach PDF from device"}</label><input type="file" id="fPdf" accept="application/pdf,.pdf" multiple hidden>`
+          ${assets ? `<label class="addpdf fpick"><span>+ ${editing ? "Add another PDF" : "Attach PDF from device"}</span><input type="file" id="fPdf" accept="application/pdf,.pdf" multiple aria-label="Attach PDF from device"></label>`
             : `<div class="desc" style="color:var(--muted)">Open this app in Claude while signed in to attach PDFs.</div>`}
         </div>
         ${ev ? `<div><div class="label">Colour</div>${colPickHtml("eColor", itemColor(a))}</div>
@@ -1406,8 +1409,7 @@ ${fieldsHtml || assessFieldsHtml}
       <div class="datasec">
         <div class="label" style="margin:0">Your data</div>
         <p class="saved" style="margin:0">Back up saves all your assessments, events, homework, grades, PDFs and settings into one file. Restore adds them from a backup file.</p>
-        <div class="btns"><button class="btn" type="button" id="bkOut">Back up</button><label class="btn" for="bkIn">Restore</label></div>
-        <input type="file" id="bkIn" accept="application/json,.json" hidden>
+        <div class="btns"><button class="btn" type="button" id="bkOut">Back up</button><label class="btn fpick"><span>Restore</span><input type="file" id="bkIn" accept="application/json,.json,text/plain" aria-label="Restore from a backup file"></label></div>
         <div id="bkConfirm"></div>
         <div class="msg" id="bkMsg"></div>
       </div>`;
@@ -1466,16 +1468,26 @@ ${fieldsHtml || assessFieldsHtml}
   }
   function bindBackup() {
     const msg = (t) => { if ($("bkMsg")) $("bkMsg").textContent = t; };
+    let ready = null;
     $("bkOut").onclick = async () => {
-      const btn = $("bkOut"); btn.disabled = true;
+      const btn = $("bkOut");
+      if (!downloads) { msg("Saving files isn’t available here."); return; }
+      if (ready) {
+        const { blob, name, missing } = ready;
+        try {
+          const r = await downloads.save({ filename: name, data: blob });
+          if (r && r.status === "saved") { msg("Backup saved as " + name + (missing ? ` (${missing} PDF${missing === 1 ? "" : "s"} couldn’t be included)` : "") + ". On iPhone, pick Save to Files."); ready = null; btn.textContent = "Back up"; btn.classList.remove("primary"); }
+          else msg("Not saved. Tap Save backup file to try again.");
+        } catch (e) { msg("The backup didn’t save. Tap Save backup file to try again."); }
+        return;
+      }
+      btn.disabled = true; btn.textContent = "Getting it ready…";
       try {
         const { backup, missing } = await makeBackup(msg);
-        const name = "de-la-tracker-backup-" + todayStr() + ".json";
-        const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
-        if (!downloads) { msg("Saving files isn’t available here."); btn.disabled = false; return; }
-        const r = await downloads.save({ filename: name, data: blob });
-        msg(r && r.status === "saved" ? "Backup saved as " + name + (missing ? ` (${missing} PDF${missing === 1 ? "" : "s"} couldn’t be included)` : "") : "Backup not saved.");
-      } catch (e) { msg("The backup didn’t save. Try again."); }
+        ready = { blob: new Blob([JSON.stringify(backup)], { type: "application/json" }), name: "de-la-tracker-backup-" + todayStr() + ".json", missing };
+        btn.textContent = "Save backup file"; btn.classList.add("primary");
+        msg("Your backup is ready. Tap Save backup file.");
+      } catch (e) { btn.textContent = "Back up"; msg("The backup didn’t work. Try again."); }
       btn.disabled = false;
     };
     $("bkIn").onchange = async (e) => {
@@ -1574,6 +1586,13 @@ ${fieldsHtml || assessFieldsHtml}
   });
 
   renderMain();
+
+  const unshift = () => { const el = document.activeElement; if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && el.type !== "file") return; if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop) { window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; } };
+  document.addEventListener("focusout", () => setTimeout(unshift, 60));
+  window.addEventListener("focus", () => setTimeout(unshift, 60));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(unshift, 60); });
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", () => setTimeout(unshift, 60));
+  window.addEventListener("scroll", () => setTimeout(unshift, 120));
 
   // ---------- connect ----------
   (async () => {
