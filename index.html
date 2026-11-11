@@ -107,7 +107,7 @@
 :root {
   --bg: #17181b; --surface: #202226; --raised: #2a2c31; --line: #34363c;
   --fg: #ecebe6; --muted: #9a9890;
-  --accent: #f2b33d; --accent-ink: #1b1608;
+  --accent: #f5c518; --accent-ink: #1b1608;
   --danger: #ef6b5b; --soon: #f2b33d; --done: #7f9cf0;
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --body: "Figtree", "Segoe UI", system-ui, sans-serif;
@@ -475,7 +475,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
 
   // ---------- theme ----------
   const SWATCHES = [
-    ["Pencil", "#f2b33d"], ["Orange", "#ff8a1f"], ["Coral", "#ff6f59"], ["Red", "#e5484d"], ["Pink", "#f06aa8"], ["Purple", "#a77bf3"],
+    ["Gold", "#f5c518"], ["Orange", "#ff8a1f"], ["Coral", "#ff6f59"], ["Red", "#e5484d"], ["Pink", "#f06aa8"], ["Purple", "#a77bf3"],
     ["Blue", "#4c8dff"], ["Sky", "#38bdf8"], ["Teal", "#2ec4b6"], ["Green", "#3fc46a"], ["Lime", "#b5e04a"], ["White", "#e9e9e9"],
   ];
   const BACKGROUNDS = [
@@ -483,7 +483,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     ["Forest", "#10201a"], ["Espresso", "#211a15"], ["Steel", "#3a4250"], ["Cream", "#f4efe3"], ["Light", "#f3f2ef"], ["White", "#ffffff"],
   ];
   const OLD_BGS = { charcoal: "#17181b", black: "#000000", navy: "#0e1322", light: "#f3f2ef" };
-  const DEFAULT_THEME = { accent: "#f2b33d", bgColor: "#17181b" };
+  const DEFAULT_THEME = { accent: "#f5c518", bgColor: "#17181b" };
   const isHex = (v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
   let theme = { ...DEFAULT_THEME };
   try {
