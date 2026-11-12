@@ -257,6 +257,20 @@ button { cursor: pointer; }
 .scoreline { display: flex; gap: 10px; align-items: center; }
 .scoreline input { flex: 1; min-width: 0; }
 .scoreline .pct { font-family: var(--mono); font-weight: 700; font-size: 18px; min-width: 64px; text-align: right; }
+.vs { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border-radius: 12px; font-weight: 700; font-size: 14px; border: 1px solid transparent; }
+.vs i { font-style: normal; font-size: 15px; line-height: 1; }
+.vs b { font-family: var(--mono); }
+.vs.up { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.vs.up i, .vs.up b { color: var(--accent); }
+.vs.down { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.vs.down i, .vs.down b { color: var(--danger); }
+.vs.even { background: var(--surface); border-color: var(--line); }
+.vs:empty { display: none; }
+.vsum { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+.vsum > b { font-family: var(--mono); font-size: 26px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vsum.up > b { color: var(--accent); } .vsum.down > b { color: var(--danger); }
+.vsum span { font-weight: 600; min-width: 0; }
+.vsum small { display: block; color: var(--muted); font-weight: 500; font-size: 13px; margin-top: 2px; }
 
 .fpick { position: relative; overflow: hidden; }
 .fpick input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
@@ -619,6 +633,15 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     if (/^\d+(\.\d+)?$/.test(t)) { const v = +t; return v <= 100 ? v : null; }
     return null;
   }
+  const classPctOf = (a) => (!a || isEvent(a)) ? null : (typeof a.classPct === "number" ? a.classPct : parseScore(a.classAvg));
+  function vsText(mine, cls) {
+    if (mine == null || cls == null) return "";
+    const d = Math.round((mine - cls) * 10) / 10;
+    if (d > 0) return `<i aria-hidden="true">▲</i><span><b>${d}%</b> above the class average</span>`;
+    if (d < 0) return `<i aria-hidden="true">▼</i><span><b>${Math.abs(d)}%</b> below the class average</span>`;
+    return `<i aria-hidden="true">●</i><span>Right on the class average</span>`;
+  }
+  const vsClass = (mine, cls) => (mine == null || cls == null ? "" : mine > cls ? "up" : mine < cls ? "down" : "even");
   const pctOf = (a) => (!a || isEvent(a)) ? null : (typeof a.pct === "number" ? a.pct : parseScore(a.mark));
   const fmtPct = (v) => (Math.round(v * 10) / 10) + "%";
   const NSW_TERMS = {
@@ -835,7 +858,17 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     }
     const firstDue = withPct.length ? withPct[withPct.length - 1].due : null;
     html += `<div class="stats">${stat("Term " + cur.n + (cur.year !== yr ? " " + cur.year : ""), termList, true)}${stat(String(yr), yearList)}${stat("Overall", withPct)}</div>`;
+    const cmp = withPct.filter((a) => classPctOf(a) != null);
+    let cmpHtml = "";
+    if (cmp.length) {
+      const avgDiff = Math.round((cmp.reduce((sum, a) => sum + (pctOf(a) - classPctOf(a)), 0) / cmp.length) * 10) / 10;
+      const above = cmp.filter((a) => pctOf(a) > classPctOf(a)).length, below = cmp.filter((a) => pctOf(a) < classPctOf(a)).length;
+      cmpHtml = `<div class="group-label"><span>Compared with your class</span><span>${cmp.length}</span></div>
+        <div class="vsum ${avgDiff > 0 ? "up" : avgDiff < 0 ? "down" : ""}"><b>${avgDiff > 0 ? "▲ " : avgDiff < 0 ? "▼ " : ""}${Math.abs(avgDiff)}%</b>
+        <span>${avgDiff > 0 ? "above" : avgDiff < 0 ? "below" : "level with"} the class average<small>Above in ${above} of ${cmp.length} result${cmp.length === 1 ? "" : "s"} with a class average${below ? ` · below in ${below}` : ""}</small></span></div>`;
+    }
     html += `<p class="statnote">${firstDue ? "Overall is every result since " + esc(parse(firstDue).toLocaleDateString("en-AU", { month: "long", year: "numeric" })) + "." : ""}${res.length > withPct.length ? " Results with only a letter grade aren’t in the % averages." : ""}</p>`;
+    html += cmpHtml;
     html += `<div class="group-label"><span>${yr} by term</span></div><div class="terms4">${[1, 2, 3, 4].map((n) => {
       const l = yearList.filter((a) => termOf(a) === n);
       return `<div class="${cur.year === yr && cur.n === n ? "cur" : ""}"><span>Term ${n}</span><b>${l.length ? fmtPct(avg(l)) : "–"}</b></div>`;
@@ -1075,6 +1108,9 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
           <div class="seg" role="group" aria-label="Status">${STATUSES.map((s) => `<button type="button" data-status="${s}" aria-pressed="${s === a.status}">${s === "Not started" ? "To do" : s}</button>`).join("")}</div></div>
         <div><div class="label"><span>Result</span><span class="hint">Term ${termOf(a)}, ${a.due.slice(0, 4)}</span></div>
           <div class="scoreline"><input type="text" id="markIn" inputmode="decimal" value="${esc(a.score ?? a.mark ?? "")}" placeholder="Score, e.g. 80% or 18/20"><span class="pct" id="pctOut">${pctOf(a) != null ? fmtPct(pctOf(a)) : ""}</span></div>
+          <div class="label" style="margin-top:12px"><span>Class average</span><span class="hint">Optional</span></div>
+          <div class="scoreline"><input type="text" id="classIn" inputmode="decimal" value="${esc(a.classAvg ?? "")}" placeholder="e.g. 72% or 14.4/20"><span class="pct" id="classOut">${classPctOf(a) != null ? fmtPct(classPctOf(a)) : ""}</span></div>
+          <div class="vs ${vsClass(pctOf(a), classPctOf(a))}" id="vsBox">${vsText(pctOf(a), classPctOf(a))}</div>
           <div class="label" style="margin-top:12px">Grade</div>
           <div class="gradechips" role="group" aria-label="Grade">${GRADES.map((g) => `<button type="button" class="gch" data-grade="${g}" aria-pressed="${a.grade === g}">${g}</button>`).join("")}</div>
           <div class="err" id="markErr" style="margin-top:6px"></div></div>`;
@@ -1107,7 +1143,19 @@ ${factsHtml}
       patchItem(a.id, { status: st }).then(() => { renderScreen(); toast(st === "Submitted" || st === "Marked" ? "Nice one! Moved to Done" : "Status updated"); });
     }));
     if ($("markIn")) {
-      $("markIn").oninput = (e) => { const v = parseScore(e.target.value); $("pctOut").textContent = v != null ? fmtPct(v) : ""; $("markErr").textContent = ""; };
+      const liveVs = () => {
+        const m = parseScore($("markIn").value), c = parseScore($("classIn").value);
+        $("vsBox").className = "vs " + vsClass(m, c); $("vsBox").innerHTML = vsText(m, c);
+      };
+      $("markIn").oninput = (e) => { const v = parseScore(e.target.value); $("pctOut").textContent = v != null ? fmtPct(v) : ""; $("markErr").textContent = ""; liveVs(); };
+      $("classIn").oninput = (e) => { const v = parseScore(e.target.value); $("classOut").textContent = v != null ? fmtPct(v) : ""; $("markErr").textContent = ""; liveVs(); };
+      $("classIn").onchange = (e) => {
+        const v = e.target.value.trim();
+        const cp = parseScore(v);
+        if (v && cp == null) { $("markErr").textContent = "Type the class average as a percentage like 72 or a score like 14.4/20."; return; }
+        e.target.blur();
+        patchItem(a.id, { classAvg: v, classPct: cp }).then(() => { renderScreen(); toast(cp != null ? "Class average saved" : "Class average cleared"); }).catch(() => { $("markErr").textContent = "Couldn’t save. Try again."; });
+      };
       $("markIn").onchange = (e) => {
         const v = e.target.value.trim();
         const pc = parseScore(v);
@@ -1196,6 +1244,7 @@ ${factsHtml}
           <label class="f">Score (once marked)<input type="text" id="fScore" inputmode="decimal" value="${esc(a.score ?? a.mark ?? "")}" placeholder="e.g. 80% or 18/20"></label>
           <label class="f">Counts for<select class="in" id="fTerm"><option value="">Auto: Term ${termOfDate(a.due)}</option>${[1, 2, 3, 4].map((t) => `<option value="${t}" ${+a.term === t ? "selected" : ""}>Term ${t}</option>`).join("")}</select></label>
         </div>
+        <label class="f">Class average (optional)<input type="text" id="fClass" inputmode="decimal" value="${esc(a.classAvg ?? "")}" placeholder="e.g. 72% or 14.4/20"></label>
         <div><div class="label">Grade</div><div class="gradechips" role="group" aria-label="Grade">${GRADES.map((g) => `<button type="button" class="gch" data-fgrade="${g}" aria-pressed="${a.grade === g}">${g}</button>`).join("")}</div></div>
         <label class="f">Teacher<input type="text" id="fTeacher" value="${esc(a.teacher || "")}" placeholder="Optional"></label>
         <label class="f">Task details<textarea id="fDetails" placeholder="What the task asks for, format, length…">${esc(a.details || "")}</textarea></label>`;
@@ -1294,7 +1343,9 @@ ${fieldsHtml || assessFieldsHtml}
         if (!data.subject || !data.title || !data.due) { $("fErr").textContent = "Add a subject, a title and a due date."; return; }
         const sv = $("fScore").value.trim(), pc = parseScore(sv);
         if (sv && pc == null) { $("fErr").textContent = "Type the score as a percentage like 80 or a mark like 18/20."; return; }
-        Object.assign(data, { score: sv, mark: sv, pct: pc, grade: fGrade, term: $("fTerm").value ? +$("fTerm").value : "" });
+        const cv = $("fClass").value.trim(), cpc = parseScore(cv);
+        if (cv && cpc == null) { $("fErr").textContent = "Type the class average as a percentage like 72 or a score like 14.4/20."; return; }
+        Object.assign(data, { classAvg: cv, classPct: cpc, score: sv, mark: sv, pct: pc, grade: fGrade, term: $("fTerm").value ? +$("fTerm").value : "" });
         if ((pc != null || fGrade) && data.status !== "Marked") data.status = "Marked";
         const chosen = $("fColor").value.toLowerCase();
         if (chosen !== subjectColor(data.subject).toLowerCase()) saveSubjColor(data.subject, chosen);
