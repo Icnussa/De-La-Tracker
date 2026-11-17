@@ -313,6 +313,7 @@ button { cursor: pointer; }
 .rs-g b { font-family: var(--mono); font-size: 17px; font-variant-numeric: tabular-nums; }
 .rs-g b small { font-size: 12px; color: var(--muted); font-weight: 500; }
 .rsub .vs { margin-top: 0; }
+.rsub .vs.none { background: var(--bg); border-color: var(--line); color: var(--muted); font-weight: 600; font-size: 13px; }
 .rsrow { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .rsrow-h { display: flex; gap: 8px; align-items: center; }
 .rsrow-h input { flex: 1; min-width: 0; font-weight: 700; }
@@ -945,6 +946,13 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
 
   // ---------- reports ----------
   let reports = [], repCol = null, repYear = "all", repTerm = "all";
+  // The school gives two reports a year: half-yearly (end of Term 2, covers Terms 1 & 2) and yearly (end of Term 4).
+  // Stored as term 2 or 4; anything older counts as the nearest one.
+  const repKind = (r) => (+r.term <= 2 ? "half" : "year");
+  const repName = (r) => (repKind(r) === "half" ? "Half-yearly report" : "Yearly report");
+  const repCovers = (r) => (repKind(r) === "half" ? "Terms 1 & 2" : "Whole year");
+  const repGap = (r) => { const c = (r.subjects || []).filter((x) => typeof x.markPct === "number" && typeof x.avgPct === "number"); return c.length ? Math.round((c.reduce((a, x) => a + (x.markPct - x.avgPct), 0) / c.length) * 10) / 10 : null; };
+  const signed = (d) => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d) + "%";
   const repAvg = (r) => { const m = (r.subjects || []).map((x) => x.markPct).filter((x) => typeof x === "number"); return m.length ? m.reduce((a, b) => a + b, 0) / m.length : null; };
   function renderReports() {
     const years = [...new Set(reports.map((r) => +r.year))].sort((a, b) => b - a);
@@ -956,19 +964,21 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     }
     html += `<div class="filters">
       <div class="chips" role="group" aria-label="Year"><button class="chip" type="button" data-ryear="all" aria-pressed="${repYear === "all"}">All years</button>${years.map((y) => `<button class="chip" type="button" data-ryear="${y}" aria-pressed="${String(repYear) === String(y)}">${y}</button>`).join("")}</div>
-      <div class="chips" role="group" aria-label="Term"><button class="chip" type="button" data-rterm="all" aria-pressed="${repTerm === "all"}">All terms</button>${[1, 2, 3, 4].map((t) => `<button class="chip" type="button" data-rterm="${t}" aria-pressed="${String(repTerm) === String(t)}">Term ${t}</button>`).join("")}</div>
+      <div class="chips" role="group" aria-label="Report"><button class="chip" type="button" data-rterm="all" aria-pressed="${repTerm === "all"}">Both reports</button><button class="chip" type="button" data-rterm="half" aria-pressed="${repTerm === "half"}">Half-yearly</button><button class="chip" type="button" data-rterm="year" aria-pressed="${repTerm === "year"}">Yearly</button></div>
     </div>`;
-    const list = reports.filter((r) => (repYear === "all" || +r.year === +repYear) && (repTerm === "all" || +r.term === +repTerm))
+    if (!["all", "half", "year"].includes(repTerm)) repTerm = "all";
+    const list = reports.filter((r) => (repYear === "all" || +r.year === +repYear) && (repTerm === "all" || repKind(r) === repTerm))
       .sort((a, b) => b.year - a.year || b.term - a.term);
-    if (!list.length) html += `<div class="empty" style="margin-top:10px">No reports for ${repTerm === "all" ? "" : "Term " + repTerm + " "}${repYear === "all" ? "any year" : repYear}.</div>`;
+    if (!list.length) html += `<div class="empty" style="margin-top:10px">No ${repTerm === "half" ? "half-yearly reports" : repTerm === "year" ? "yearly reports" : "reports"} for ${repYear === "all" ? "any year" : repYear}.</div>`;
     let lastYear = null;
     list.forEach((r) => {
       if (r.year !== lastYear) { html += `${lastYear !== null ? "</div>" : ""}<div class="group-label"><span>${r.year}</span></div><div class="list">`; lastYear = r.year; }
       const av = repAvg(r), n = (r.subjects || []).length;
       const ranks = (r.subjects || []).filter((x) => x.rank);
-      html += `<button class="card" type="button" data-rep="${esc(r.id)}"><span class="av rp">T${r.term}</span>
-        <span style="min-width:0"><div class="t">Term ${r.term} report${r.files && r.files.length ? '<span class="pdfmark">PDF</span>' : ""}</div><div class="m">${n} subject${n === 1 ? "" : "s"}${ranks.length ? " · best rank " + Math.min(...ranks.map((x) => x.rank)) : ""}</div></span>
-        <span class="when"><b>${av != null ? Math.round(av) + "%" : "–"}</b>${av != null ? "average" : ""}</span></button>`;
+      const gap = repGap(r);
+      html += `<button class="card" type="button" data-rep="${esc(r.id)}"><span class="av rp">${repKind(r) === "half" ? "HY" : "Y"}</span>
+        <span style="min-width:0"><div class="t">${repName(r)}${r.files && r.files.length ? '<span class="pdfmark">PDF</span>' : ""}</div><div class="m">${repCovers(r)} · ${n} subject${n === 1 ? "" : "s"}${ranks.length ? " · best rank " + Math.min(...ranks.map((x) => x.rank)) : ""}</div></span>
+        <span class="when ${gap == null ? "" : gap > 0 ? "soon" : gap < 0 ? "late" : ""}"><b>${av != null ? Math.round(av) + "%" : "–"}</b>${gap != null ? signed(gap) + " vs avg" : av != null ? "average" : ""}</span></button>`;
     });
     if (lastYear !== null) html += `</div>`;
     return html + `<button class="addpdf" type="button" id="addReport">+ Add a report</button>`;
@@ -996,12 +1006,12 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
       <div class="s-bar"><button class="textbtn left" type="button" data-close aria-label="Back" style="display:flex;align-items:center;gap:2px">${ICON_BACK}Back</button>
         <span class="s-ttl"></span><button class="textbtn right" type="button" id="repEdit">Edit</button></div>
       <div class="s-body">
-        <div class="d-top"><span class="pill">School report</span><h2>Term ${r.term}, ${r.year}</h2></div>
+        <div class="d-top"><span class="pill">${repCovers(r)}</span><h2>${repName(r)}, ${r.year}</h2></div>
         <div class="facts">
           <div class="fact"><span>Average mark</span><b class="mono">${av != null ? fmtPct(av) : "—"}</b></div>
-          <div class="fact"><span>Subjects</span><b class="mono">${subs.length}</b></div>
+          <div class="fact"><span>Vs course avg</span><b class="mono" style="color:${repGap(r) == null ? "inherit" : repGap(r) > 0 ? "var(--accent)" : repGap(r) < 0 ? "var(--danger)" : "inherit"}">${repGap(r) == null ? "—" : signed(repGap(r))}</b>${repGap(r) == null ? "" : `<small style="display:block;color:var(--muted);font-size:12px">on average</small>`}</div>
           <div class="fact"><span>Best ranking</span><b>${best ? esc(best.rank + (best.of ? " of " + best.of : "")) + "<br><small style=\"color:var(--muted)\">" + esc(best.name) + "</small>" : "—"}</b></div>
-          <div class="fact"><span>Above course avg</span><b class="mono">${cmp.length ? above + " of " + cmp.length : "—"}</b></div>
+          <div class="fact"><span>Above average in</span><b class="mono">${cmp.length ? above + " of " + cmp.length : "—"}</b></div>
         </div>
         <div>
           <div class="label">Report PDF</div>
@@ -1015,14 +1025,16 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
             <div class="rs-g"><div><span>Mark</span><b>${typeof x.markPct === "number" ? fmtPct(x.markPct) : esc(x.mark || "–")}</b></div>
               <div><span>Course avg</span><b>${typeof x.avgPct === "number" ? fmtPct(x.avgPct) : esc(x.avg || "–")}</b></div>
               <div><span>Ranking</span><b>${x.rank ? esc(x.rank) + (x.of ? `<small>/${esc(x.of)}</small>` : "") : "–"}</b></div></div>
-            ${typeof x.markPct === "number" && typeof x.avgPct === "number" ? `<div class="vs ${vsClass(x.markPct, x.avgPct)}">${vsText(x.markPct, x.avgPct).replace("class average", "course average")}</div>` : ""}
+            ${typeof x.markPct === "number" && typeof x.avgPct === "number"
+              ? `<div class="vs ${vsClass(x.markPct, x.avgPct)}">${vsText(x.markPct, x.avgPct).replace("class average", "course average")}</div>`
+              : `<div class="vs none">${typeof x.markPct === "number" ? "Add the course average to see how far above or below it you are." : "Add your mark and the course average to compare."}</div>`}
           </div>`).join("") : `<div class="empty">No subjects yet. Tap Edit to add them.</div>`}</div>
         </div>
         <div id="repConfirm"><button class="btn danger" type="button" id="repDel">Delete report</button></div>
       </div>`;
     $("repEdit").onclick = () => openRepForm("edit", r.id);
     $("repDel").onclick = () => {
-      $("repConfirm").innerHTML = `<div class="confirm"><span>Delete the Term ${r.term}, ${r.year} report and its PDF? This can’t be undone.</span><div class="btns"><button class="btn" type="button" id="repNo">Keep it</button><button class="btn danger" type="button" id="repYes">Delete</button></div></div>`;
+      $("repConfirm").innerHTML = `<div class="confirm"><span>Delete the ${repName(r).toLowerCase()} for ${r.year} and its PDF? This can’t be undone.</span><div class="btns"><button class="btn" type="button" id="repNo">Keep it</button><button class="btn danger" type="button" id="repYes">Delete</button></div></div>`;
       $("repNo").onclick = () => renderScreen();
       $("repYes").onclick = async () => {
         for (const f of r.files || []) { try { if (assets) await assets.delete(f.id); } catch (e) {} }
@@ -1063,7 +1075,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
         const names = [...seen.values()].sort((a, b) => a.localeCompare(b));
         screen.rows = (names.length ? names : [""]).map((n) => ({ name: n, mark: "", grade: "", avg: "", rank: "", of: "" }));
       }
-      screen.year = r ? +r.year : cur.year; screen.term = r ? +r.term : cur.n; screen.pending = [];
+      screen.year = r ? +r.year : cur.year; screen.term = r ? (+r.term <= 2 ? 2 : 4) : (cur.n <= 2 ? 2 : 4); screen.pending = [];
     }
     const rows = screen.rows;
     const yNow = +todayStr().slice(0, 4);
@@ -1077,7 +1089,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
       <div class="s-body">
         <div class="f2">
           <label class="f">Year<select class="in" id="rYear">${yearOpts.map((y) => `<option ${y === screen.year ? "selected" : ""}>${y}</option>`).join("")}</select></label>
-          <label class="f">Term<select class="in" id="rTerm">${[1, 2, 3, 4].map((t) => `<option value="${t}" ${t === screen.term ? "selected" : ""}>Term ${t}</option>`).join("")}</select></label>
+          <label class="f">Report<select class="in" id="rTerm"><option value="2" ${screen.term === 2 ? "selected" : ""}>Half-yearly (Terms 1 & 2)</option><option value="4" ${screen.term === 4 ? "selected" : ""}>Yearly (whole year)</option></select></label>
         </div>
         ${editing ? "" : `<div>
           <div class="label">Report PDF</div>
@@ -1121,8 +1133,8 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     $("repForm").onsubmit = async (e) => {
       e.preventDefault(); sync();
       const year = screen.year, term = screen.term;
-      const dup = reports.find((x) => +x.year === year && +x.term === term && (!r || x.id !== r.id));
-      if (dup) { $("rErr").textContent = `You already have a Term ${term}, ${year} report. Pick a different term, or open that report and tap Edit.`; return; }
+      const dup = reports.find((x) => +x.year === year && repKind(x) === repKind({ term }) && (!r || x.id !== r.id));
+      if (dup) { $("rErr").textContent = `You already have a ${repName({ term }).toLowerCase()} for ${year}. Open that one and tap Edit to change it.`; return; }
       const subs = [];
       for (const x of rows) {
         const name = x.name.trim(); if (!name) continue;
