@@ -128,9 +128,9 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- shell ---------- */
-.app { position: fixed; top: 0; height: 100vh; height: 100lvh; left: 0; right: 0; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); }
+.app { position: fixed; top: 0; height: 100vh; height: var(--app-h, 100lvh); left: 0; right: 0; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); }
 @media (min-width: 600px) { .app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
-.topbar { display: flex; align-items: center; gap: 12px; padding-top: calc(20px + env(safe-area-inset-top, 0px)); padding-bottom: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.topbar { display: flex; align-items: center; gap: 12px; padding-top: max(20px, var(--top-gap, 0px)); padding-bottom: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
 .topbar .ttl { flex: 1; min-width: 0; }
 .topbar h1 { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; margin: 0; letter-spacing: -0.02em; }
 .topbar h1 span { color: var(--accent); }
@@ -361,10 +361,10 @@ button { cursor: pointer; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; }
 
 /* ---------- full screens (detail / form) ---------- */
-.layer { position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: 100lvh; z-index: 20; display: flex; justify-content: center; }
+.layer { position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: var(--app-h, 100lvh); z-index: 20; display: flex; justify-content: center; }
 .layer .scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.5); }
 .screen { position: relative; width: 100%; max-width: 560px; height: 100%; background: var(--bg); display: flex; flex-direction: column;
-  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  padding-top: var(--top-gap, env(safe-area-inset-top, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
 .s-bar { display: flex; align-items: center; gap: 10px; padding-block: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); border-bottom: 1px solid var(--line); }
 .s-bar .s-ttl { flex: 1; min-width: 0; text-align: center; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .textbtn { background: transparent; border: 0; color: var(--accent); font-weight: 700; padding: 8px 4px; min-width: 60px; }
@@ -452,7 +452,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
 .bgopt .pv i { position: absolute; left: 8px; right: 8px; height: 8px; border-radius: 4px; }
 
 /* ---------- PDF viewer ---------- */
-.viewer { position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: 100lvh; z-index: 40; background: var(--bg); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+.viewer { position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: var(--app-h, 100lvh); z-index: 40; background: var(--bg); display: flex; flex-direction: column; padding-top: var(--top-gap, env(safe-area-inset-top, 0px)); }
 .v-bar { display: flex; align-items: center; gap: 10px; padding-block: 10px; padding-left: var(--gut-l); padding-right: var(--gut-r); border-bottom: 1px solid var(--line); background: var(--surface); }
 .v-bar .v-name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v-bar .v-info { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -1913,6 +1913,26 @@ ${fieldsHtml || assessFieldsHtml}
     else if (screen) closeScreen();
   });
 
+  // iPhone home screen apps (newer iOS) report a screen that is one clock-bar shorter than the real one,
+  // leaving a gap under the tab bar. In home screen mode the app always fills the whole screen, so use that.
+  function fitScreen() {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;top:0;left:0;width:0;padding-top:env(safe-area-inset-top,0px);visibility:hidden";
+    document.body.appendChild(probe); const inset = probe.offsetHeight; probe.remove();
+    const standalone = navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+    let h = window.innerHeight;
+    if (standalone) {
+      const portrait = window.innerHeight >= window.innerWidth;
+      const screenH = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+      if (screenH > h && screenH - h <= inset + 4) h = screenH;
+    }
+    const root = document.documentElement.style;
+    root.setProperty("--app-h", h + "px");
+    root.setProperty("--top-gap", inset ? Math.round(inset * 2 + 6) + "px" : "0px");
+  }
+  fitScreen();
+  window.addEventListener("resize", () => { if (!document.activeElement || !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) fitScreen(); });
+  window.addEventListener("orientationchange", () => setTimeout(fitScreen, 300));
   renderMain();
 
   const unshift = () => { const el = document.activeElement; if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && el.type !== "file") return; if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop) { window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; } };
