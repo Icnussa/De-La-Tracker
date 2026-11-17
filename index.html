@@ -282,6 +282,44 @@ button { cursor: pointer; }
 .datasec .msg { font-size: 13px; color: var(--muted); }
 .datasec .msg:empty { display: none; }
 
+/* ---------- grades term switcher ---------- */
+.tsw { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.tsw .mid { flex: 1; min-width: 0; text-align: center; }
+.tsw .mid b { display: block; font-family: var(--display); font-weight: 800; font-size: 20px; }
+.tsw .mid small { color: var(--muted); font-size: 12px; font-weight: 600; }
+.tsw .round:disabled { opacity: 0.35; cursor: default; }
+.terms4 button { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; text-align: center; min-width: 0; }
+.terms4 button span { display: block; font-size: 11px; font-weight: 700; color: var(--muted); }
+.terms4 button b { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.terms4 button.cur { border-color: var(--accent); }
+.terms4 button.sel { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.terms4 button.sel span { color: inherit; opacity: 0.75; }
+
+/* ---------- reports ---------- */
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-weight: 700; font-size: 14px; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.filters { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.card .av.rp { background: var(--accent); color: var(--accent-ink); font-size: 15px; }
+.rsub { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.rs-h { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; min-width: 0; }
+.rs-h i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.rs-h .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-h .gr { font-family: var(--display); font-weight: 800; background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 2px 10px; flex: none; }
+.rs-g { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.rs-g div { background: var(--bg); border-radius: 10px; padding: 8px; min-width: 0; }
+.rs-g span { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rs-g b { font-family: var(--mono); font-size: 17px; font-variant-numeric: tabular-nums; }
+.rs-g b small { font-size: 12px; color: var(--muted); font-weight: 500; }
+.rsub .vs { margin-top: 0; }
+.rsrow { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.rsrow-h { display: flex; gap: 8px; align-items: center; }
+.rsrow-h input { flex: 1; min-width: 0; font-weight: 700; }
+.rsrow-h .x { background: transparent; border: 0; color: var(--muted); font-size: 24px; line-height: 1; padding: 4px 6px; }
+.rs3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.rsrow input { background: var(--bg); }
+
 /* ---------- terms ---------- */
 .termstrip { width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .termstrip .ts-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
@@ -456,13 +494,13 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.7 2.7L16.5 9.5"/></svg>
       <span>Done</span>
     </button>
-    <button class="tab" role="tab" data-tab="diary" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h11.5A2.5 2.5 0 0 1 19 6v14.5H7.5A2.5 2.5 0 0 1 5 18Z"/><path d="M5 18a2.5 2.5 0 0 1 2.5-2.5H19M9 8h6M9 11.5h4"/></svg>
-      <span>Diary<span class="badge" id="hwBadge" hidden></span></span>
-    </button>
     <button class="tab" role="tab" data-tab="grades" type="button">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
       <span>Grades</span>
+    </button>
+    <button class="tab" role="tab" data-tab="reports" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M9 17v-3M12 17v-5M15 17v-2"/></svg>
+      <span>Reports</span>
     </button>
   </nav>
 </div>
@@ -841,41 +879,50 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
   }
 
   // ---------- grades ----------
+  let gradeView = null; // {year, n} being looked at; null = this term
   function renderGrades() {
-    const res = items.filter((a) => !isEvent(a) && (pctOf(a) != null || a.grade)).sort((x, y) => y.due.localeCompare(x.due));
-    const withPct = res.filter((a) => pctOf(a) != null);
+    const all = items.filter((a) => !isEvent(a) && (pctOf(a) != null || a.grade)).sort((x, y) => y.due.localeCompare(x.due));
+    const allPct = all.filter((a) => pctOf(a) != null);
     const avg = (list) => list.length ? list.reduce((sum, a) => sum + pctOf(a), 0) / list.length : null;
     const cur = currentTerm();
-    const yr = +todayStr().slice(0, 4);
-    const termList = withPct.filter((a) => +a.due.slice(0, 4) === cur.year && termOf(a) === cur.n);
-    const yearList = withPct.filter((a) => +a.due.slice(0, 4) === yr);
+    const v = gradeView || cur;
+    const isCur = v.year === cur.year && v.n === cur.n;
+    const inTerm = (a) => +a.due.slice(0, 4) === v.year && termOf(a) === v.n;
+    const res = all.filter(inTerm), withPct = res.filter((a) => pctOf(a) != null);
+    const yearList = allPct.filter((a) => +a.due.slice(0, 4) === v.year);
+    const firstYear = all.length ? Math.min(cur.year, +all[all.length - 1].due.slice(0, 4)) : cur.year;
+    const atStart = v.year < firstYear || (v.year === firstYear && v.n === 1);
     const stat = (label, list, main) => `<div class="stat ${main ? "main" : ""}"><span class="k">${label}</span><b>${list.length ? fmtPct(avg(list)) : "–"}</b><small>${list.length} result${list.length === 1 ? "" : "s"}</small></div>`;
-    let html = `<div class="screen-title">Grades</div>`;
+    let html = `<div class="screen-title">Grades</div>
+      <div class="tsw"><button class="round sm" type="button" id="gPrev" aria-label="Previous term" ${atStart ? "disabled" : ""}>‹</button>
+        <div class="mid"><b>Term ${v.n}, ${v.year}</b><small>${isCur ? "This term" : "Past term"}</small></div>
+        <button class="round sm" type="button" id="gNext" aria-label="Next term" ${isCur ? "disabled" : ""}>›</button></div>
+      ${isCur ? "" : `<button class="linkbtn" type="button" id="gNow" style="display:block;margin:-6px auto 6px">Back to this term</button>`}
+      <div class="stats">${stat("Term " + v.n, withPct, true)}${stat(String(v.year), yearList)}${stat("Overall", allPct)}</div>`;
+    const termRow = `<div class="group-label"><span>${v.year} by term</span><span>Tap a term</span></div><div class="terms4">${[1, 2, 3, 4].map((n) => {
+      const l = yearList.filter((a) => termOf(a) === n);
+      const future = v.year > cur.year || (v.year === cur.year && n > cur.n);
+      return `<button type="button" data-gterm="${n}" class="${v.n === n ? "sel" : ""} ${cur.year === v.year && cur.n === n ? "cur" : ""}" ${future ? "disabled style=\"opacity:.45\"" : ""}><span>Term ${n}</span><b>${l.length ? fmtPct(avg(l)) : "–"}</b></button>`;
+    }).join("")}</div>`;
     if (!res.length) {
-      return html + `<div class="stats">${stat("Term " + cur.n, [], true)}${stat(String(yr), [])}${stat("Overall", [])}</div>
-        <div class="empty" style="margin-top:14px"><strong>No results yet</strong>Open a marked assessment and type your score, like 80% or 18/20, then tap the grade letter. Your averages show up here.</div>
-        <button class="addpdf" type="button" id="addResult">+ Add a past result</button>`;
+      html += `<div class="empty" style="margin-top:14px"><strong>${isCur ? "New term, fresh start" : "No results in Term " + v.n}</strong>${isCur
+        ? "Open a marked assessment and type your score, like 80% or 18/20. This term’s averages show up here." + (all.length ? " Your earlier terms are still saved: tap ‹ or a term below." : "")
+        : "Nothing was marked in this term."}</div>`;
+      return html + termRow + `<button class="addpdf" type="button" id="addResult">+ Add a past result</button>`;
     }
-    const firstDue = withPct.length ? withPct[withPct.length - 1].due : null;
-    html += `<div class="stats">${stat("Term " + cur.n + (cur.year !== yr ? " " + cur.year : ""), termList, true)}${stat(String(yr), yearList)}${stat("Overall", withPct)}</div>`;
     const cmp = withPct.filter((a) => classPctOf(a) != null);
-    let cmpHtml = "";
     if (cmp.length) {
       const avgDiff = Math.round((cmp.reduce((sum, a) => sum + (pctOf(a) - classPctOf(a)), 0) / cmp.length) * 10) / 10;
       const above = cmp.filter((a) => pctOf(a) > classPctOf(a)).length, below = cmp.filter((a) => pctOf(a) < classPctOf(a)).length;
-      cmpHtml = `<div class="group-label"><span>Compared with your class</span><span>${cmp.length}</span></div>
+      html += `<div class="group-label"><span>Compared with your class</span><span>${cmp.length}</span></div>
         <div class="vsum ${avgDiff > 0 ? "up" : avgDiff < 0 ? "down" : ""}"><b>${avgDiff > 0 ? "▲ " : avgDiff < 0 ? "▼ " : ""}${Math.abs(avgDiff)}%</b>
         <span>${avgDiff > 0 ? "above" : avgDiff < 0 ? "below" : "level with"} the class average<small>Above in ${above} of ${cmp.length} result${cmp.length === 1 ? "" : "s"} with a class average${below ? ` · below in ${below}` : ""}</small></span></div>`;
     }
-    html += `<p class="statnote">${firstDue ? "Overall is every result since " + esc(parse(firstDue).toLocaleDateString("en-AU", { month: "long", year: "numeric" })) + "." : ""}${res.length > withPct.length ? " Results with only a letter grade aren’t in the % averages." : ""}</p>`;
-    html += cmpHtml;
-    html += `<div class="group-label"><span>${yr} by term</span></div><div class="terms4">${[1, 2, 3, 4].map((n) => {
-      const l = yearList.filter((a) => termOf(a) === n);
-      return `<div class="${cur.year === yr && cur.n === n ? "cur" : ""}"><span>Term ${n}</span><b>${l.length ? fmtPct(avg(l)) : "–"}</b></div>`;
-    }).join("")}</div>`;
+    if (res.length > withPct.length) html += `<p class="statnote">Results with only a letter grade aren’t in the % averages.</p>`;
+    html += termRow;
     const counts = {}; res.forEach((a) => { if (a.grade) counts[a.grade] = (counts[a.grade] || 0) + 1; });
     const gks = Object.keys(counts).sort();
-    if (gks.length) html += `<div class="group-label"><span>Grades</span></div><div class="dist">${gks.map((g) => `<span><b>${esc(g)}</b>× ${counts[g]}</span>`).join("")}</div>`;
+    if (gks.length) html += `<div class="group-label"><span>Grades this term</span></div><div class="dist">${gks.map((g) => `<span><b>${esc(g)}</b>× ${counts[g]}</span>`).join("")}</div>`;
     const bySub = new Map();
     withPct.forEach((a) => { const k = subjKey(a.subject); if (!bySub.has(k)) bySub.set(k, { name: a.subject.trim(), list: [] }); bySub.get(k).list.push(a); });
     const subs = [...bySub.values()].map((x) => ({ ...x, avg: avg(x.list) })).sort((x, y) => y.avg - x.avg);
@@ -883,9 +930,227 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
         <span class="nm"><i style="background:${subjectColor(x.name)}"></i><span>${esc(x.name)}</span></span>
         <span class="v">${fmtPct(x.avg)}<small>${x.list.length} result${x.list.length === 1 ? "" : "s"}</small></span>
         <span class="bar"><i style="width:${Math.max(2, Math.min(100, x.avg))}%;background:${subjectColor(x.name)}"></i></span></div>`).join("")}</div>`;
-    html += `<div class="group-label"><span>All results</span><span>${res.length}</span></div><div class="list">${res.map(cardHtml).join("")}</div>
+    html += `<div class="group-label"><span>Results, Term ${v.n}</span><span>${res.length}</span></div><div class="list">${res.map(cardHtml).join("")}</div>
       <button class="addpdf" type="button" id="addResult">+ Add a past result</button>`;
     return html;
+  }
+  function bindGrades() {
+    const cur = currentTerm(), v = gradeView || cur;
+    const go = (y, n) => { gradeView = (y === cur.year && n === cur.n) ? null : { year: y, n }; $("main").scrollTop = 0; renderMain(); };
+    if ($("gPrev")) $("gPrev").onclick = () => (v.n === 1 ? go(v.year - 1, 4) : go(v.year, v.n - 1));
+    if ($("gNext")) $("gNext").onclick = () => (v.n === 4 ? go(v.year + 1, 1) : go(v.year, v.n + 1));
+    if ($("gNow")) $("gNow").onclick = () => go(cur.year, cur.n);
+    document.querySelectorAll("[data-gterm]").forEach((b) => (b.onclick = () => go(v.year, +b.dataset.gterm)));
+  }
+
+  // ---------- reports ----------
+  let reports = [], repCol = null, repYear = "all", repTerm = "all";
+  const repAvg = (r) => { const m = (r.subjects || []).map((x) => x.markPct).filter((x) => typeof x === "number"); return m.length ? m.reduce((a, b) => a + b, 0) / m.length : null; };
+  function renderReports() {
+    const years = [...new Set(reports.map((r) => +r.year))].sort((a, b) => b - a);
+    if (repYear !== "all" && !years.includes(+repYear)) repYear = "all";
+    let html = `<div class="screen-title">Reports</div>`;
+    if (!reports.length) {
+      return html + `<div class="empty"><strong>No reports yet</strong>Add your school report: attach the PDF and type in your mark, grade, course average and ranking for each subject.</div>
+        <button class="addpdf" type="button" id="addReport">+ Add a report</button>`;
+    }
+    html += `<div class="filters">
+      <div class="chips" role="group" aria-label="Year"><button class="chip" type="button" data-ryear="all" aria-pressed="${repYear === "all"}">All years</button>${years.map((y) => `<button class="chip" type="button" data-ryear="${y}" aria-pressed="${String(repYear) === String(y)}">${y}</button>`).join("")}</div>
+      <div class="chips" role="group" aria-label="Term"><button class="chip" type="button" data-rterm="all" aria-pressed="${repTerm === "all"}">All terms</button>${[1, 2, 3, 4].map((t) => `<button class="chip" type="button" data-rterm="${t}" aria-pressed="${String(repTerm) === String(t)}">Term ${t}</button>`).join("")}</div>
+    </div>`;
+    const list = reports.filter((r) => (repYear === "all" || +r.year === +repYear) && (repTerm === "all" || +r.term === +repTerm))
+      .sort((a, b) => b.year - a.year || b.term - a.term);
+    if (!list.length) html += `<div class="empty" style="margin-top:10px">No reports for ${repTerm === "all" ? "" : "Term " + repTerm + " "}${repYear === "all" ? "any year" : repYear}.</div>`;
+    let lastYear = null;
+    list.forEach((r) => {
+      if (r.year !== lastYear) { html += `${lastYear !== null ? "</div>" : ""}<div class="group-label"><span>${r.year}</span></div><div class="list">`; lastYear = r.year; }
+      const av = repAvg(r), n = (r.subjects || []).length;
+      const ranks = (r.subjects || []).filter((x) => x.rank);
+      html += `<button class="card" type="button" data-rep="${esc(r.id)}"><span class="av rp">T${r.term}</span>
+        <span style="min-width:0"><div class="t">Term ${r.term} report${r.files && r.files.length ? '<span class="pdfmark">PDF</span>' : ""}</div><div class="m">${n} subject${n === 1 ? "" : "s"}${ranks.length ? " · best rank " + Math.min(...ranks.map((x) => x.rank)) : ""}</div></span>
+        <span class="when"><b>${av != null ? Math.round(av) + "%" : "–"}</b>${av != null ? "average" : ""}</span></button>`;
+    });
+    if (lastYear !== null) html += `</div>`;
+    return html + `<button class="addpdf" type="button" id="addReport">+ Add a report</button>`;
+  }
+  function bindReports() {
+    document.querySelectorAll("[data-ryear]").forEach((b) => (b.onclick = () => { repYear = b.dataset.ryear; renderMain(); }));
+    document.querySelectorAll("[data-rterm]").forEach((b) => (b.onclick = () => { repTerm = b.dataset.rterm; renderMain(); }));
+    if ($("addReport")) $("addReport").onclick = () => openRepForm("new");
+  }
+  function openReport(id) { screen = { kind: "report", id }; $("screenLayer").hidden = false; renderScreen(); }
+  function openRepForm(mode, id) { screen = { kind: "repform", mode, id }; $("screenLayer").hidden = false; renderScreen(); }
+
+  function renderReportDetail() {
+    const r = reports.find((x) => x.id === screen.id);
+    if (!r) return closeScreen();
+    const sc = $("screen");
+    const av = repAvg(r);
+    const subs = r.subjects || [];
+    const cmp = subs.filter((x) => typeof x.markPct === "number" && typeof x.avgPct === "number");
+    const above = cmp.filter((x) => x.markPct > x.avgPct).length;
+    const ranks = subs.filter((x) => x.rank);
+    const best = ranks.length ? ranks.reduce((a, b) => (b.rank < a.rank ? b : a)) : null;
+    const files = (r.files || []).map((f) => `<div class="file"><span class="ico">PDF</span><button type="button" class="open" data-pdf="${esc(f.id)}" data-name="${esc(f.name)}">${esc(f.name)}</button>${assets ? `<button type="button" class="x" data-rmrfile="${esc(f.id)}" aria-label="Remove ${esc(f.name)}">×</button>` : ""}</div>`).join("");
+    sc.innerHTML = `
+      <div class="s-bar"><button class="textbtn left" type="button" data-close aria-label="Back" style="display:flex;align-items:center;gap:2px">${ICON_BACK}Back</button>
+        <span class="s-ttl"></span><button class="textbtn right" type="button" id="repEdit">Edit</button></div>
+      <div class="s-body">
+        <div class="d-top"><span class="pill">School report</span><h2>Term ${r.term}, ${r.year}</h2></div>
+        <div class="facts">
+          <div class="fact"><span>Average mark</span><b class="mono">${av != null ? fmtPct(av) : "—"}</b></div>
+          <div class="fact"><span>Subjects</span><b class="mono">${subs.length}</b></div>
+          <div class="fact"><span>Best ranking</span><b>${best ? esc(best.rank + (best.of ? " of " + best.of : "")) + "<br><small style=\"color:var(--muted)\">" + esc(best.name) + "</small>" : "—"}</b></div>
+          <div class="fact"><span>Above course avg</span><b class="mono">${cmp.length ? above + " of " + cmp.length : "—"}</b></div>
+        </div>
+        <div>
+          <div class="label">Report PDF</div>
+          <div class="files">${files}</div>
+          ${assets ? `<label class="addpdf fpick" id="rdrop"><span id="rdropTxt">+ Attach report PDF</span><input type="file" id="repPdfIn" accept="application/pdf,.pdf" multiple aria-label="Attach report PDF"></label><div class="err" id="rUpMsg" style="margin-top:6px"></div>` : ""}
+        </div>
+        <div>
+          <div class="label"><span>Subjects</span><span class="hint">${subs.length}</span></div>
+          <div class="list">${subs.length ? subs.map((x) => `<div class="rsub">
+            <div class="rs-h"><i style="background:${subjectColor(x.name)}"></i><span class="nm">${esc(x.name)}</span>${x.grade ? `<span class="gr">${esc(x.grade)}</span>` : ""}</div>
+            <div class="rs-g"><div><span>Mark</span><b>${typeof x.markPct === "number" ? fmtPct(x.markPct) : esc(x.mark || "–")}</b></div>
+              <div><span>Course avg</span><b>${typeof x.avgPct === "number" ? fmtPct(x.avgPct) : esc(x.avg || "–")}</b></div>
+              <div><span>Ranking</span><b>${x.rank ? esc(x.rank) + (x.of ? `<small>/${esc(x.of)}</small>` : "") : "–"}</b></div></div>
+            ${typeof x.markPct === "number" && typeof x.avgPct === "number" ? `<div class="vs ${vsClass(x.markPct, x.avgPct)}">${vsText(x.markPct, x.avgPct).replace("class average", "course average")}</div>` : ""}
+          </div>`).join("") : `<div class="empty">No subjects yet. Tap Edit to add them.</div>`}</div>
+        </div>
+        <div id="repConfirm"><button class="btn danger" type="button" id="repDel">Delete report</button></div>
+      </div>`;
+    $("repEdit").onclick = () => openRepForm("edit", r.id);
+    $("repDel").onclick = () => {
+      $("repConfirm").innerHTML = `<div class="confirm"><span>Delete the Term ${r.term}, ${r.year} report and its PDF? This can’t be undone.</span><div class="btns"><button class="btn" type="button" id="repNo">Keep it</button><button class="btn danger" type="button" id="repYes">Delete</button></div></div>`;
+      $("repNo").onclick = () => renderScreen();
+      $("repYes").onclick = async () => {
+        for (const f of r.files || []) { try { if (assets) await assets.delete(f.id); } catch (e) {} }
+        try { if (repCol) await repCol.doc(r.id).delete(); reports = reports.filter((x) => x.id !== r.id); closeScreen(); renderMain(); toast("Report deleted"); }
+        catch (e) { toast("Couldn’t delete. Try again."); }
+      };
+    };
+    sc.querySelectorAll("[data-rmrfile]").forEach((b) => (b.onclick = async () => {
+      const fid = b.dataset.rmrfile;
+      try { await assets.delete(fid); } catch (e) {}
+      const files2 = (r.files || []).filter((f) => f.id !== fid);
+      try { if (repCol) await repCol.doc(r.id).update({ files: files2 }); r.files = files2; renderScreen(); toast("PDF removed"); } catch (e) { toast("Couldn’t remove. Try again."); }
+    }));
+    if (assets && $("repPdfIn")) $("repPdfIn").onchange = async (e) => {
+      const pdfs = [...e.target.files].filter((f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
+      e.target.value = "";
+      if (!pdfs.length) { $("rUpMsg").textContent = "Only PDF files can be attached."; return; }
+      const added = [];
+      try {
+        for (let i = 0; i < pdfs.length; i++) { $("rdropTxt").textContent = `Uploading ${i + 1} of ${pdfs.length}…`; const up = await assets.upload(pdfs[i], { type: "application/pdf" }); added.push({ id: up.id, name: pdfs[i].name }); }
+      } catch (err) { $("rUpMsg").textContent = err && err.code === "too_large" ? "That PDF is over 20 MB. Try a smaller copy." : "Upload failed. Try again."; }
+      if (added.length) {
+        const files2 = [...(r.files || []), ...added];
+        try { if (repCol) await repCol.doc(r.id).update({ files: files2 }); r.files = files2; renderScreen(); toast("Report PDF attached"); } catch (err) { $("rUpMsg").textContent = "Couldn’t save. Try again."; }
+      } else $("rdropTxt").textContent = "+ Attach report PDF";
+    };
+  }
+
+  function renderRepForm() {
+    const editing = screen.mode === "edit";
+    const r = editing ? reports.find((x) => x.id === screen.id) : null;
+    if (editing && !r) return closeScreen();
+    const cur = currentTerm();
+    if (!screen.rows) {
+      if (r) screen.rows = (r.subjects || []).map((x) => ({ name: x.name || "", mark: x.mark || "", grade: x.grade || "", avg: x.avg || "", rank: x.rank ? String(x.rank) : "", of: x.of ? String(x.of) : "" }));
+      else {
+        const seen = new Map(); items.filter((a) => !isEvent(a) && a.subject).forEach((a) => { const k = subjKey(a.subject); if (!seen.has(k)) seen.set(k, a.subject.trim()); });
+        const names = [...seen.values()].sort((a, b) => a.localeCompare(b));
+        screen.rows = (names.length ? names : [""]).map((n) => ({ name: n, mark: "", grade: "", avg: "", rank: "", of: "" }));
+      }
+      screen.year = r ? +r.year : cur.year; screen.term = r ? +r.term : cur.n; screen.pending = [];
+    }
+    const rows = screen.rows;
+    const yNow = +todayStr().slice(0, 4);
+    const yearOpts = []; for (let y = yNow + 1; y >= Math.min(yNow - 6, screen.year); y--) yearOpts.push(y);
+    const subjects = [...new Set(items.filter((a) => !isEvent(a)).map((x) => x.subject).filter(Boolean))];
+    const sc = $("screen");
+    sc.innerHTML = `
+      <div class="s-bar"><button class="textbtn left" type="button" id="rCancel">Cancel</button>
+        <span class="s-ttl">${editing ? "Edit report" : "New report"}</span><span style="min-width:60px"></span></div>
+      <form class="edit" id="repForm" novalidate>
+      <div class="s-body">
+        <div class="f2">
+          <label class="f">Year<select class="in" id="rYear">${yearOpts.map((y) => `<option ${y === screen.year ? "selected" : ""}>${y}</option>`).join("")}</select></label>
+          <label class="f">Term<select class="in" id="rTerm">${[1, 2, 3, 4].map((t) => `<option value="${t}" ${t === screen.term ? "selected" : ""}>Term ${t}</option>`).join("")}</select></label>
+        </div>
+        ${editing ? "" : `<div>
+          <div class="label">Report PDF</div>
+          <div class="files" id="rPend"></div>
+          ${assets ? `<label class="addpdf fpick"><span>+ Attach report PDF</span><input type="file" id="rPdf" accept="application/pdf,.pdf" multiple aria-label="Attach report PDF"></label>` : ""}
+        </div>`}
+        <div>
+          <div class="label"><span>Subjects</span><span class="hint">Blank subjects aren’t saved</span></div>
+          <div class="list" id="rRows">${rows.map((x, i) => `<div class="rsrow" data-row="${i}">
+            <div class="rsrow-h"><input type="text" class="r-name" list="rSubjList" value="${esc(x.name)}" placeholder="Subject" aria-label="Subject" autocomplete="off"><button type="button" class="x" data-rmrow="${i}" aria-label="Remove this subject">×</button></div>
+            <div class="rs3">
+              <label class="f">My mark<input type="text" class="r-mark" inputmode="decimal" value="${esc(x.mark)}" placeholder="e.g. 85"></label>
+              <label class="f">Grade<input type="text" class="r-grade" value="${esc(x.grade)}" placeholder="e.g. A" autocapitalize="characters" maxlength="12"></label>
+              <label class="f">Course avg<input type="text" class="r-avg" inputmode="decimal" value="${esc(x.avg)}" placeholder="e.g. 72"></label>
+            </div>
+            <div class="f2">
+              <label class="f">Ranking (place)<input type="text" class="r-rank" inputmode="numeric" value="${esc(x.rank)}" placeholder="e.g. 5"></label>
+              <label class="f">Out of<input type="text" class="r-of" inputmode="numeric" value="${esc(x.of)}" placeholder="e.g. 120"></label>
+            </div></div>`).join("")}</div>
+          <button class="addpdf" type="button" id="rAddRow">+ Add a subject</button>
+          <datalist id="rSubjList">${subjects.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
+        </div>
+        <div class="err" id="rErr"></div>
+      </div>
+      <div class="s-foot"><button class="btn primary" type="submit" id="rSave">${editing ? "Save changes" : "Save report"}</button></div>
+      </form>`;
+    const sync = () => {
+      screen.year = +$("rYear").value; screen.term = +$("rTerm").value;
+      sc.querySelectorAll("[data-row]").forEach((el) => {
+        const i = +el.dataset.row; const q = (c) => el.querySelector(c).value;
+        rows[i] = { name: q(".r-name"), mark: q(".r-mark"), grade: q(".r-grade"), avg: q(".r-avg"), rank: q(".r-rank"), of: q(".r-of") };
+      });
+    };
+    const drawPend = () => { if (!$("rPend")) return; $("rPend").innerHTML = screen.pending.map((f, i) => `<div class="file"><span class="ico">PDF</span><span class="open" style="cursor:default">${esc(f.name)}</span><button type="button" class="x" data-unrp="${i}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join("");
+      $("rPend").querySelectorAll("[data-unrp]").forEach((b) => (b.onclick = () => { screen.pending.splice(+b.dataset.unrp, 1); drawPend(); })); };
+    drawPend();
+    if ($("rPdf")) $("rPdf").onchange = (e) => { const ok = [...e.target.files].filter((f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name)); screen.pending.push(...ok); e.target.value = ""; drawPend(); };
+    $("rAddRow").onclick = () => { sync(); rows.push({ name: "", mark: "", grade: "", avg: "", rank: "", of: "" }); renderRepForm(); setTimeout(() => { const all = sc.querySelectorAll(".r-name"); if (all.length) { all[all.length - 1].focus(); } }, 30); };
+    sc.querySelectorAll("[data-rmrow]").forEach((b) => (b.onclick = () => { sync(); rows.splice(+b.dataset.rmrow, 1); renderRepForm(); }));
+    $("rCancel").onclick = () => { if (editing) { screen = { kind: "report", id: r.id }; renderScreen(); } else closeScreen(); };
+    $("repForm").onsubmit = async (e) => {
+      e.preventDefault(); sync();
+      const year = screen.year, term = screen.term;
+      const dup = reports.find((x) => +x.year === year && +x.term === term && (!r || x.id !== r.id));
+      if (dup) { $("rErr").textContent = `You already have a Term ${term}, ${year} report. Pick a different term, or open that report and tap Edit.`; return; }
+      const subs = [];
+      for (const x of rows) {
+        const name = x.name.trim(); if (!name) continue;
+        const mark = x.mark.trim(), avgT = x.avg.trim(), rank = x.rank.trim(), of = x.of.trim();
+        if (!mark && !avgT && !rank && !of && !x.grade.trim()) continue;
+        const markPct = parseScore(mark), avgPct = parseScore(avgT);
+        if (mark && markPct == null) { $("rErr").textContent = `Check ${name}: type the mark like 85 or 17/20.`; return; }
+        if (avgT && avgPct == null) { $("rErr").textContent = `Check ${name}: type the course average like 72 or 14.4/20.`; return; }
+        if (rank && !/^\d+$/.test(rank)) { $("rErr").textContent = `Check ${name}: the ranking should be a whole number, like 5.`; return; }
+        if (of && !/^\d+$/.test(of)) { $("rErr").textContent = `Check ${name}: “out of” should be a whole number, like 120.`; return; }
+        if (rank && of && +rank > +of) { $("rErr").textContent = `Check ${name}: the ranking is bigger than the number of students.`; return; }
+        subs.push({ name, mark, markPct, grade: x.grade.trim().toUpperCase(), avg: avgT, avgPct, rank: rank ? +rank : null, of: of ? +of : null });
+      }
+      const btn = $("rSave"); btn.disabled = true;
+      const uploaded = [];
+      try {
+        for (let i = 0; i < screen.pending.length; i++) { btn.textContent = `Uploading PDF ${i + 1} of ${screen.pending.length}…`; const up = await assets.upload(screen.pending[i], { type: "application/pdf" }); uploaded.push({ id: up.id, name: screen.pending[i].name }); }
+      } catch (err) { btn.disabled = false; btn.textContent = editing ? "Save changes" : "Save report"; $("rErr").textContent = "A PDF didn’t upload. Check it’s under 20 MB and try again."; return; }
+      btn.textContent = "Saving…";
+      const id = r ? r.id : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const data = { year, term, subjects: subs, files: [...((r && r.files) || []), ...uploaded], created: (r && r.created) || new Date().toISOString() };
+      try {
+        if (repCol) await repCol.doc(id).set(data);
+        const i = reports.findIndex((x) => x.id === id); if (i >= 0) reports[i] = { id, ...data }; else reports.push({ id, ...data });
+        repYear = "all"; repTerm = "all";
+        screen = { kind: "report", id }; renderMain(); renderScreen(); toast(editing ? "Report saved" : "Report added");
+      } catch (err) { btn.disabled = false; btn.textContent = editing ? "Save changes" : "Save report"; $("rErr").textContent = "Couldn’t save. Try again."; }
+    };
   }
 
   // ---------- term dates screen ----------
@@ -1045,10 +1310,10 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     const upCount = items.filter((a) => !isDone(a) && daysUntil(a.due) >= 0 && daysUntil(a.due) <= 7).length;
     $("upBadge").hidden = !upCount; $("upBadge").textContent = upCount;
     const keepScroll = $("main").scrollTop;
-    const hwCount = hw.filter((h) => !h.done && daysUntil(h.due) <= 1).length;
-    $("hwBadge").hidden = !hwCount; $("hwBadge").textContent = hwCount;
-    $("fab").setAttribute("aria-label", tab === "diary" ? "Add homework" : "Add something");
-    $("main").innerHTML = (tab === "up" ? renderUpcoming() : tab === "cal" ? renderCalendar() : tab === "diary" ? renderDiary() : tab === "grades" ? renderGrades() : renderDone()) + notice;
+    $("fab").setAttribute("aria-label", tab === "reports" ? "Add a report" : "Add something");
+    $("main").innerHTML = (tab === "up" ? renderUpcoming() : tab === "cal" ? renderCalendar() : tab === "grades" ? renderGrades() : tab === "reports" ? renderReports() : renderDone()) + notice;
+    if (tab === "grades") bindGrades();
+    if (tab === "reports") bindReports();
     if ($("addResult")) $("addResult").onclick = () => { screen = { kind: "form", mode: "new", ekind: "assessment", preset: { status: "Marked" } }; $("screenLayer").hidden = false; renderScreen(); };
     $("main").scrollTop = keepScroll;
     if (tab === "cal") {
@@ -1071,6 +1336,8 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font
     if (screen.kind === "form") return renderForm();
     if (screen.kind === "hwform") return renderHwForm();
     if (screen.kind === "terms") return renderTermsScreen();
+    if (screen.kind === "report") return renderReportDetail();
+    if (screen.kind === "repform") return renderRepForm();
     const a = items.find((x) => x.id === screen.id);
     if (!a) return closeScreen();
     renderDetail(a);
@@ -1395,7 +1662,6 @@ ${fieldsHtml || assessFieldsHtml}
       <div class="choices">
         <button class="choice" type="button" data-add="assessment"><span class="ch-ic">${ICON_ASSESS}</span><span><b>Assessment</b><small>Exams, tests, assignments, projects</small></span></button>
         <button class="choice" type="button" data-add="event"><span class="ch-ic">${ICON_EVENT}</span><span><b>Event</b><small>Excursions, symposiums, sport carnivals, camps, anything else for school</small></span></button>
-        <button class="choice" type="button" data-add="homework"><span class="ch-ic">${ICON_HW}</span><span><b>Homework</b><small>Goes in your diary</small></span></button>
       </div>`;
     $("sheet").querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => {
       const k = b.dataset.add;
@@ -1462,7 +1728,7 @@ ${fieldsHtml || assessFieldsHtml}
       <button class="btn" type="button" id="resetTheme">Reset both to original</button>
       <div class="datasec">
         <div class="label" style="margin:0">Your data</div>
-        <p class="saved" style="margin:0">Back up saves all your assessments, events, homework, grades, PDFs and settings into one file. Restore adds them from a backup file.</p>
+        <p class="saved" style="margin:0">Back up saves all your assessments, events, grades, reports, PDFs and settings into one file. Restore adds them from a backup file.</p>
         <div class="btns"><button class="btn" type="button" id="bkOut">Back up</button><label class="btn fpick"><span>Restore</span><input type="file" id="bkIn" accept="application/json,.json,text/plain" aria-label="Restore from a backup file"></label></div>
         <div id="bkConfirm"></div>
         <div class="msg" id="bkMsg"></div>
@@ -1490,13 +1756,13 @@ ${fieldsHtml || assessFieldsHtml}
   }
   async function makeBackup(progress) {
     const files = {}; let missing = 0;
-    const ids = []; items.forEach((a) => (a.files || []).forEach((f) => ids.push(f)));
+    const ids = []; items.forEach((a) => (a.files || []).forEach((f) => ids.push(f))); reports.forEach((r) => (r.files || []).forEach((f) => ids.push(f)));
     for (let i = 0; i < ids.length; i++) {
       progress && progress(`Packing PDF ${i + 1} of ${ids.length}…`);
       try { const b = await getBlob(ids[i].id); files[ids[i].id] = { name: ids[i].name, type: b.type || "application/pdf", data: await blobToDataUrl(b) }; }
       catch (e) { missing++; }
     }
-    return { backup: { app: "de-la-tracker", v: 1, exported: new Date().toISOString(), assessments: items, homework: hw, settings: { colors: { subjects: subjColors }, terms: { years: termData } }, files }, missing };
+    return { backup: { app: "de-la-tracker", v: 1, exported: new Date().toISOString(), assessments: items, homework: hw, reports, settings: { colors: { subjects: subjColors }, terms: { years: termData } }, files }, missing };
   }
   async function restoreBackup(obj, progress) {
     const idMap = {}; let skipped = 0;
@@ -1515,10 +1781,16 @@ ${fieldsHtml || assessFieldsHtml}
       if (col) await col.doc(id).set(rest);
     }
     for (const h of obj.homework || []) { if (!h || !h.id) continue; const { id, ...rest } = h; if (hwCol) await hwCol.doc(id).set(rest); }
+    for (const r of obj.reports || []) {
+      if (!r || !r.id || !r.year) continue;
+      const { id, ...rest } = r;
+      rest.files = (rest.files || []).filter((x) => idMap[x.id]).map((x) => ({ ...x, id: idMap[x.id] }));
+      if (repCol) await repCol.doc(id).set(rest);
+    }
     const st = obj.settings || {};
     if (st.colors && st.colors.subjects && colorRef) await colorRef.set({ subjects: { ...subjColors, ...st.colors.subjects } });
     if (st.terms && st.terms.years && termRef) await termRef.set({ years: { ...termData, ...st.terms.years } });
-    return { count: (obj.assessments || []).length + (obj.homework || []).length, skipped };
+    return { count: (obj.assessments || []).length + (obj.homework || []).length + (obj.reports || []).length, skipped };
   }
   function bindBackup() {
     const msg = (t) => { if ($("bkMsg")) $("bkMsg").textContent = t; };
@@ -1551,7 +1823,7 @@ ${fieldsHtml || assessFieldsHtml}
       if (!obj || obj.app !== "de-la-tracker") { msg("That file isn’t a DE LA TRACKER backup."); return; }
       const n = (obj.assessments || []).length, hn = (obj.homework || []).length, pn = Object.keys(obj.files || {}).length;
       const when = obj.exported ? new Date(obj.exported).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" }) : "an earlier date";
-      $("bkConfirm").innerHTML = `<div class="confirm" style="border-color:var(--line)"><span>Restore the backup from ${esc(when)}? It has ${n} assessment${n === 1 ? "" : "s"} &amp; event${n === 1 ? "" : "s"}, ${hn} homework and ${pn} PDF${pn === 1 ? "" : "s"}. Anything already in the app stays.</span><div class="btns"><button class="btn" type="button" id="bkNo">Cancel</button><button class="btn primary" type="button" id="bkYes" style="font-size:15px;padding:10px">Restore</button></div></div>`;
+      $("bkConfirm").innerHTML = `<div class="confirm" style="border-color:var(--line)"><span>Restore the backup from ${esc(when)}? It has ${n} assessment${n === 1 ? "" : "s"} &amp; event${n === 1 ? "" : "s"}, ${(obj.reports || []).length} report${(obj.reports || []).length === 1 ? "" : "s"} and ${pn} PDF${pn === 1 ? "" : "s"}. Anything already in the app stays.</span><div class="btns"><button class="btn" type="button" id="bkNo">Cancel</button><button class="btn primary" type="button" id="bkYes" style="font-size:15px;padding:10px">Restore</button></div></div>`;
       $("bkNo").onclick = () => ($("bkConfirm").innerHTML = "");
       $("bkYes").onclick = async () => {
         $("bkConfirm").innerHTML = "";
@@ -1616,6 +1888,8 @@ ${fieldsHtml || assessFieldsHtml}
     if (tk) { toggleHw(tk.dataset.hwtick); return; }
     const ho = e.target.closest("[data-hwopen]");
     if (ho) { screen = { kind: "hwform", mode: "edit", id: ho.dataset.hwopen }; $("screenLayer").hidden = false; renderScreen(); return; }
+    const rp = e.target.closest("[data-rep]");
+    if (rp) { openReport(rp.dataset.rep); return; }
     const o = e.target.closest("[data-open]");
     if (o) { openDetail(o.dataset.open); return; }
     const d = e.target.closest("[data-day]");
@@ -1628,7 +1902,7 @@ ${fieldsHtml || assessFieldsHtml}
   });
   document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; $("main").scrollTop = 0; renderMain(); }));
   $("fab").onclick = () => {
-    if (tab === "diary") { screen = { kind: "hwform", mode: "new" }; $("screenLayer").hidden = false; renderScreen(); return; }
+    if (tab === "reports") { openRepForm("new"); return; }
     openAdd(tab === "cal" ? (selDay || todayStr()) : null);
   };
   $("themeBtn").onclick = openTheme;
@@ -1679,6 +1953,11 @@ ${fieldsHtml || assessFieldsHtml}
     colorRef.onSnapshot((snap) => {
       const d = snap.exists ? snap.data() : null;
       subjColors = (d && d.subjects && typeof d.subjects === "object") ? d.subjects : {};
+      if (screen && screen.kind !== "detail") { const keep = screen; screen = null; renderMain(); screen = keep; } else renderMain();
+    }, () => {});
+    repCol = db.collection("reports");
+    repCol.onSnapshot((snap) => {
+      reports = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => r.year && r.term);
       if (screen && screen.kind !== "detail") { const keep = screen; screen = null; renderMain(); screen = keep; } else renderMain();
     }, () => {});
     hwCol = db.collection("homework");
